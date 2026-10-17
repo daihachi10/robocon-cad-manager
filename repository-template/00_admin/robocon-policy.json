@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "mainBranch": "main",
+  "leaders": ["replace-with-github-login"],
+  "backupGuide": "月1回、GitHub以外の保存先へバックアップを保存し、実施日と保存先を記録する。"
+}

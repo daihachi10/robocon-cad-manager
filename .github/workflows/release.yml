@@ -1,0 +1,27 @@
+name: Release
+on:
+  push:
+    tags: [ 'v*' ]
+jobs:
+  windows-release:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure
+        run: cmake -S . -B build-release -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build-release --config Release
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Package
+        shell: pwsh
+        run: .\packaging\create-release.ps1 -Version $env:GITHUB_REF_NAME.TrimStart('v')
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/RoboconCadManagerSetup-*.exe
+            dist/update.json

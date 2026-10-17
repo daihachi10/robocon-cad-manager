@@ -1,0 +1,21 @@
+# SolidWorks temporary, backup, and simulation files
+~$*.SLD*
+*.sldprt~
+*.sldasm~
+*.slddrw~
+*.bak
+*.swp
+*.log
+*.err
+*.out
+*.WRL
+*.eprt
+*.easm
+*.edrw
+*.ldb
+*.tmp
+*.cache
+Simulation Results/
+SOLIDWORKS Simulation/
+Thumbs.db
+Desktop.ini
