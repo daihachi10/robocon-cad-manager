@@ -1,10 +1,14 @@
 #define AppName "RoboconCadManager"
 #define AppVersion GetEnv("APP_VERSION")
 #define AppExe "RoboconCadManager.exe"
+#define AppDisplayName "高専ロボコン CAD 管理 (RoboconCadManager)"
+#ifndef AppBinary
+  #define AppBinary "..\build-release\RoboconCadManager.exe"
+#endif
 
 [Setup]
 AppId={{F6AFD6D3-A0E6-4A6D-AD1A-4CFE3E5A6F12}
-AppName={#AppName}
+AppName={#AppDisplayName}
 AppVersion={#AppVersion}
 AppPublisher=高専ロボコン設計班
 DefaultDirName={localappdata}\Programs\RoboconCadManager
@@ -18,14 +22,25 @@ SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 DisableProgramGroupPage=yes
+AllowNoIcons=no
+SetupIconFile=..\assets\app.ico
+UninstallDisplayIcon={app}\RoboconCadManager.exe,0
+CloseApplications=yes
+
+[Languages]
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
-Source: "..\build-release\RoboconCadManager.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppBinary}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\packaging\git-version.json"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
-Name: "{userdesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{userprograms}\{#AppDisplayName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"; IconIndex: 0; AppUserModelID: "RoboconCadManager.Desktop"; Comment: "ロボコン設計班のCADファイルを管理"
+Name: "{userdesktop}\{#AppDisplayName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExe}"; IconIndex: 0; AppUserModelID: "RoboconCadManager.Desktop"; Tasks: desktopicon
+
+[InstallDelete]
+Type: files; Name: "{userprograms}\RoboconCadManager.lnk"
+Type: files; Name: "{userdesktop}\RoboconCadManager.lnk"
 
 [Tasks]
 Name: "desktopicon"; Description: "デスクトップにショートカットを作成"; Flags: unchecked
@@ -56,7 +71,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var ResultCode: Integer;
 begin
-  if CurStep = ssPostInstall then begin
+  if (CurStep = ssPostInstall) and (GitSetupPath <> '') then begin
     if not Exec(GitSetupPath, '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /DIR="' + ExpandConstant('{app}\tools\git') + '" /COMPONENTS="icons,ext,gitlfs,assoc,assoc_sh"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
       MsgBox('Git for Windowsをアプリに追加できませんでした。設定からGitの場所を確認してください。', mbError, MB_OK);
   end;
@@ -65,5 +80,7 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
+  if FileExists(ExpandConstant('{app}\tools\git\bin\git.exe')) and
+     FileExists(ExpandConstant('{app}\tools\git\cmd\git-lfs.exe')) then Exit;
   if not DownloadGit() then Result := 'Git for Windowsの取得に失敗しました。';
 end;

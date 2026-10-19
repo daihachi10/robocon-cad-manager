@@ -24,10 +24,13 @@ jobs:
           "$installDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Package
         shell: pwsh
-        run: .\packaging\create-release.ps1 -Version $env:GITHUB_REF_NAME.TrimStart('v')
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          .\packaging\create-release.ps1 -Version $version
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/RoboconCadManagerSetup-*.exe
+            dist/RoboconCadManagerSetup-${{ env.RELEASE_VERSION }}.exe
             dist/update.json

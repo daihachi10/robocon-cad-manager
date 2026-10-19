@@ -1,10 +1,12 @@
 cmake_minimum_required(VERSION 3.24)
-project(RoboconCadManager VERSION 0.1.0 LANGUAGES CXX)
+project(RoboconCadManager VERSION 0.1.1 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+configure_file(src/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
 add_executable(RoboconCadManager WIN32
+  "${CMAKE_CURRENT_BINARY_DIR}/app.rc"
   src/main.cpp src/app.cpp src/config.cpp src/process.cpp src/git.cpp
   src/json.cpp src/cad.cpp src/ui.cpp src/app_actions.cpp src/solidworks_monitor.cpp src/update.cpp)
 target_include_directories(RoboconCadManager PRIVATE src)
