@@ -5,6 +5,7 @@ namespace rc {
 namespace {
 std::wstring FailureMessage(const std::wstring& operation,const ProcessResult& result) {
  if(!result.error.empty())return operation+L"に失敗しました。\n\n"+result.error;
+ if(result.output.find(L"Author identity unknown")!=std::wstring::npos||result.output.find(L"tell me who you are")!=std::wstring::npos||result.output.find(L"unable to auto-detect email address")!=std::wstring::npos)return L"変更記録の氏名・メールアドレスをGitが確認できません。「その他」→「設定」で氏名とメールアドレスを入力して保存してください。";
  if(result.output.find(L"nothing to commit")!=std::wstring::npos)return L"保存する変更がありません。";
  if(result.output.find(L"Authentication failed")!=std::wstring::npos||result.output.find(L"could not read Username")!=std::wstring::npos)return L"GitHubに認証できませんでした。Git Credential Managerでサインインしてください。";
  if(result.output.find(L"not a git repository")!=std::wstring::npos)return L"作業フォルダがGitリポジトリではありません。設定を確認してください。";
@@ -19,7 +20,9 @@ void App::ShowSetup(){
  SetupFields f;
  if(auto*r=Current()){f.name=r->name;f.remote=r->remote;f.folder=r->folder;f.userName=r->userName;f.userEmail=r->userEmail;}
  if(!ShowSetupDialog(window_,f))return;
+ f.userName=Trim(f.userName);f.userEmail=Trim(f.userEmail);
  if(f.name.empty()||f.remote.empty()||f.folder.empty()){MessageBoxW(window_,L"表示名、リポジトリURL、作業フォルダは必須です。",L"設定を保存できません",MB_ICONWARNING);return;}
+ if(f.userName.empty()||f.userEmail.empty()){MessageBoxW(window_,L"変更記録に使う氏名とメールアドレスを入力してください。",L"設定を保存できません",MB_ICONWARNING);return;}
  if(f.remote.find(L"://")==std::wstring::npos&&f.remote.find(L"/")!=std::wstring::npos)f.remote=L"https://github.com/"+f.remote+L".git";
  if(f.remote.starts_with(L"http://github.com/"))f.remote.replace(0,5,L"https");
  Repository repository{f.name,f.remote,f.folder,f.userName,f.userEmail};
@@ -31,21 +34,28 @@ void App::ShowSetup(){
  selected_=saved==repositories.end()?0:static_cast<int>(std::distance(repositories.begin(),saved));
  StartLocalWatcher();
  SetStatus(L"設定を保存しました。ローカル情報を更新しています。");
- if(f.enableLfsSetup){
-  Background([this,repository]{
+ if(std::filesystem::exists(std::filesystem::path(repository.folder)/L".git")){
+  Background([this,repository,enableLfsSetup=f.enableLfsSetup]{
    std::wstring setupError;
-   auto result=git_.SetupLfsLocking(repository,setupError);
-   auto* task=new UiTask{[this,result=std::move(result),setupError=std::move(setupError)]() mutable {
-    if(result.exitCode){
-     MessageBoxW(window_,setupError.c_str(),L"LFSロック設定を追加できません",MB_ICONERROR);
-     SetStatus(setupError);
+   ProcessResult result;
+   {std::lock_guard guard(lockWorkMutex_);
+    result=git_.Configure(repository);
+    if(!result.exitCode&&enableLfsSetup){result=git_.SetupLfsLocking(repository,setupError);if(result.error.empty()&&!setupError.empty())result.error=setupError;}
+   }
+   auto* task=new UiTask{[this,result=std::move(result),enableLfsSetup]() mutable {
+    if(result.exitCode||!result.error.empty()){
+     const auto error=FailureMessage(L"Gitへの設定反映",result);
+     MessageBoxW(window_,error.c_str(),L"Gitに設定を反映できません",MB_ICONERROR);
+     SetStatus(error);
     }else{
-     MessageBoxW(window_,L".gitattributesへLFSロック設定を追加しました。変更を選んで送信してください。",L"LFSロック設定",MB_ICONINFORMATION);
-     Refresh();
+     if(enableLfsSetup){MessageBoxW(window_,L".gitattributesへLFSロック設定を追加しました。変更を選んで送信してください。",L"LFSロック設定",MB_ICONINFORMATION);Refresh();}
+     SetStatus(L"設定を保存し、Gitに変更記録の氏名・メールアドレスを反映しました。");
     }
    }};
    if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(task)))delete task;
   });
+ }else if(f.enableLfsSetup){
+  MessageBoxW(window_,L"設定を保存しました。先に「その他」→「複製」で作業フォルダを取得し、その後にLFSロック設定を実行してください。",L"先にリポジトリを複製してください",MB_ICONINFORMATION);
  }
  Refresh();
 }

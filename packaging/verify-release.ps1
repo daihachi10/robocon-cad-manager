@@ -1,4 +1,4 @@
-param([switch]$TestInstaller)
+param([switch]$TestInstaller,[string]$GitExecutable='')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $testDir = Join-Path $root 'build-release\verification'
@@ -9,6 +9,12 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'CAD検証プログラムをビルドできません。' }
   & '.\advisory_cad_test.exe' $testDir
   if ($LASTEXITCODE -ne 0) { throw 'CADの書き込み検証に失敗しました。' }
+  & cl /nologo /std:c++20 /EHsc /utf-8 "/I$root\src" "$root\tests\git_identity_test.cpp" "$root\src\git.cpp" "$root\src\process.cpp" "$root\src\json.cpp" /Fe:git_identity_test.exe /link shell32.lib shlwapi.lib
+  if ($LASTEXITCODE -ne 0) { throw '氏名・メールの検証プログラムをビルドできません。' }
+  if (-not $GitExecutable) { $GitExecutable=(Get-Command git -ErrorAction Stop).Source }
+  $identityDir=Join-Path $testDir ([guid]::NewGuid().ToString('N'))
+  & '.\git_identity_test.exe' $GitExecutable $identityDir
+  if ($LASTEXITCODE -ne 0) { throw 'Gitへの氏名・メール反映の検証に失敗しました。' }
 } finally { Pop-Location }
 
 # Only CI may install a test instance. Local verification never changes the installed app.

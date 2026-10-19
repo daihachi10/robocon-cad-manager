@@ -28,11 +28,12 @@ bool ParseHttpsUrl(const std::wstring& value, URL_COMPONENTS& components, std::w
 }
 
 std::wstring HttpError(const std::wstring& operation, DWORD code = GetLastError()) {
+  if(code==ERROR_WINHTTP_TIMEOUT)return operation+L"が時間内に完了しませんでした。（Windowsエラー 12002）\n通信が一時的に止まっています。時間をおいて再試行してください。";
   return operation + L"に失敗しました。（Windowsエラー " + std::to_wstring(code) + L"）\n" + Trim(LastError(code));
 }
 
-bool HttpGet(const std::wstring& url, std::vector<BYTE>& body, std::wstring& error) {
-  body.clear();
+bool HttpRead(const std::wstring& url,const std::function<bool(const BYTE*,DWORD)>& consume,uint64_t maximum,std::wstring& error,int receiveTimeout) {
+  error.clear();
   URL_COMPONENTS parts{};
   if (!ParseHttpsUrl(url, parts, error)) return false;
   std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
@@ -42,7 +43,7 @@ bool HttpGet(const std::wstring& url, std::vector<BYTE>& body, std::wstring& err
   if (path.empty()) path = L"/";
   HINTERNET session = WinHttpOpen(L"RoboconCadManager/0.1", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, nullptr, nullptr, 0);
   if (!session) { error = HttpError(L"更新確認の通信開始"); return false; }
-  WinHttpSetTimeouts(session, 5000, 5000, 10000, 10000);
+  WinHttpSetTimeouts(session, 10000, 15000, 30000, receiveTimeout);
   HINTERNET connection = WinHttpConnect(session, host.c_str(), parts.nPort, 0);
   HINTERNET request = connection ? WinHttpOpenRequest(connection, L"GET", path.c_str(), nullptr,
       WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : nullptr;
@@ -56,15 +57,15 @@ bool HttpGet(const std::wstring& url, std::vector<BYTE>& body, std::wstring& err
     if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX)) {
       error = HttpError(L"更新サーバーの応答確認");
     } else if (status >= 200 && status < 300) {
+      std::vector<BYTE> buffer(64*1024);
+      uint64_t received{};
       for (;;) {
-        DWORD available{};
-        if (!WinHttpQueryDataAvailable(request, &available)) { error = HttpError(L"更新データの確認"); break; }
-        if (!available) { result = true; break; }
-        const auto old = body.size(); body.resize(old + available);
         DWORD read{};
-        if (!WinHttpReadData(request, body.data() + old, available, &read)) { body.resize(old); error = HttpError(L"更新データの受信"); break; }
-        body.resize(old + read);
+        if (!WinHttpReadData(request, buffer.data(), static_cast<DWORD>(buffer.size()), &read)) { error = HttpError(L"更新データの受信"); break; }
         if (!read) { result = true; break; }
+        if(read>maximum-received){error=L"更新サーバーから想定より大きいデータを受信しました。";break;}
+        received+=read;
+        if(!consume(buffer.data(),read))break;
       }
     } else error = L"更新サーバーがHTTP "+std::to_wstring(status)+L"を返しました。";
   }
@@ -73,7 +74,13 @@ bool HttpGet(const std::wstring& url, std::vector<BYTE>& body, std::wstring& err
   return result;
 }
 
+bool HttpGet(const std::wstring& url,std::vector<BYTE>& body,std::wstring& error){
+  body.clear();
+  return HttpRead(url,[&](const BYTE* bytes,DWORD count){body.insert(body.end(),bytes,bytes+count);return true;},1024*1024,error,30000);
+}
+
 bool Sha256(const std::filesystem::path& file, std::wstring& digest, std::wstring& error) {
+  digest.clear();
   BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_HASH_HANDLE hash{};
   DWORD objectSize{}, dataSize{};
   if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0) < 0 ||
@@ -88,6 +95,7 @@ bool Sha256(const std::filesystem::path& file, std::wstring& digest, std::wstrin
     const auto count = stream.gcount();
     if (count > 0 && BCryptHashData(hash, buffer.data(), static_cast<ULONG>(count), 0) < 0) { error=L"更新ファイルを検証できません。"; break; }
   }
+  if(stream.bad()&&error.empty())error=L"検証する更新ファイルを読み取れません。";
   if (error.empty() && BCryptFinishHash(hash, result.data(), static_cast<ULONG>(result.size()), 0) >= 0) { static const wchar_t hex[]=L"0123456789abcdef"; for (BYTE b:result) { digest+=hex[b>>4]; digest+=hex[b&15]; } }
   else if (error.empty()) error=L"更新ファイルを検証できません。";
   BCryptDestroyHash(hash); BCryptCloseAlgorithmProvider(algorithm,0); return error.empty();
@@ -118,11 +126,32 @@ UpdateResult CheckForUpdate() {
 }
 
 bool DownloadAndVerifyUpdate(const UpdateInfo& info, std::filesystem::path& installer, std::wstring& error) {
-  std::vector<BYTE> data; if (!HttpGet(info.installerUrl, data, error)) return false;
-  wchar_t temp[MAX_PATH]; if (!GetTempPathW(MAX_PATH,temp)) { error=L"更新用一時フォルダを取得できません。"; return false; }
+  error.clear();installer.clear();
+  if(info.size==0||info.size>512ull*1024*1024||info.version.empty()||
+      info.version.find_first_not_of(L"0123456789.")!=std::wstring::npos||info.sha256.size()!=64||
+      info.sha256.find_first_not_of(L"0123456789abcdefABCDEF")!=std::wstring::npos){error=L"更新情報のサイズ・バージョン・SHA-256が正しくありません。";return false;}
+  wchar_t temp[MAX_PATH];const auto tempLength=GetTempPathW(MAX_PATH,temp);
+  if (!tempLength||tempLength>=MAX_PATH) { error=L"更新用一時フォルダを取得できません。"; return false; }
   std::filesystem::path dir=std::filesystem::path(temp)/L"RoboconCadManagerUpdate"; std::error_code ec; std::filesystem::create_directories(dir,ec); if(ec){error=L"更新用一時フォルダを作成できません。";return false;}
-  installer=dir/(L"RoboconCadManagerSetup-"+info.version+L".exe"); std::ofstream out(installer,std::ios::binary|std::ios::trunc); if(!out){error=L"更新ファイルを保存できません。";return false;} out.write(reinterpret_cast<const char*>(data.data()),static_cast<std::streamsize>(data.size())); out.close();
-  if (data.size()!=info.size) { error=L"更新ファイルのサイズが一致しません。"; DeleteFileW(installer.c_str()); return false; }
-  std::wstring hash; if(!Sha256(installer,hash,error)||CompareStringOrdinal(hash.data(),-1,info.sha256.data(),-1,TRUE)!=CSTR_EQUAL){error=L"更新ファイルのSHA-256が一致しません。インストールを中止しました。";DeleteFileW(installer.c_str());return false;} return true;
+  wchar_t partial[MAX_PATH];
+  if(!GetTempFileNameW(dir.c_str(),L"RCM",0,partial)){error=L"更新用一時ファイルを作成できません。";return false;}
+  struct TemporaryFile{const wchar_t* path;~TemporaryFile(){DeleteFileW(path);}} cleanup{partial};
+  std::ofstream out(std::filesystem::path(partial),std::ios::binary|std::ios::trunc);
+  if(!out){error=L"更新ファイルを保存できません。";return false;}
+  uint64_t received{};
+  const bool downloaded=HttpRead(info.installerUrl,[&](const BYTE* bytes,DWORD count){
+    out.write(reinterpret_cast<const char*>(bytes),count);received+=count;
+    if(!out){error=L"更新ファイルを書き込めません。空き容量を確認してください。";return false;}return true;
+  },info.size,error,120000);
+  out.close();
+  if(!downloaded)return false;
+  if(!out){error=L"更新ファイルを保存できません。";return false;}
+  if(received!=info.size){error=L"更新ファイルのサイズが一致しません。";return false;}
+  std::wstring hash;
+  if(!Sha256(partial,hash,error))return false;
+  if(CompareStringOrdinal(hash.c_str(),-1,info.sha256.c_str(),-1,TRUE)!=CSTR_EQUAL){error=L"更新ファイルのSHA-256が一致しません。インストールを中止しました。";return false;}
+  const auto verified=dir/(L"RoboconCadManagerSetup-"+info.version+L".exe");
+  if(!MoveFileExW(partial,verified.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){error=L"検証済みの更新ファイルを保存できません。";return false;}
+  installer=verified;return true;
 }
 }
