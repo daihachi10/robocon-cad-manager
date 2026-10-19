@@ -21,7 +21,7 @@ void App::CreateBrowserControls(){
  status_=CreateWindowW(STATUSCLASSNAMEW,L"「設定」からリポジトリを登録してください。",WS_CHILD|WS_VISIBLE,0,0,0,0,window_,nullptr,instance_,nullptr);
  auto button=[&](WORD id,const wchar_t* text){CreateWindowW(L"BUTTON",text,WS_CHILD|WS_VISIBLE|WS_TABSTOP,0,0,0,0,window_,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),instance_,nullptr);};
  button(101,L"更新");button(105,L"保存して送信");button(107,L"その他");
- button(kBrowseBack,L"←");button(kBrowseForward,L"→");button(kBrowseUp,L"↑");
+ button(kBrowseBack,L"←");button(kBrowseForward,L"→");button(kBrowseUp,L"↑");button(kOpenExplorer,L"エクスプローラーで開く");
  filter_=CreateWindowW(WC_COMBOBOXW,L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|CBS_DROPDOWNLIST,0,0,0,0,window_,reinterpret_cast<HMENU>(kFilter),instance_,nullptr);
  for(auto text:{L"すべてのファイル",L"パーツ (.SLDPRT)",L"アセンブリ (.SLDASM)",L"図面 (.SLDDRW)"})SendMessageW(filter_,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text));
  SendMessageW(filter_,CB_SETCURSEL,0,0);
@@ -37,6 +37,7 @@ void App::LayoutBrowser(UINT dpi){
  auto move=[&](HWND control,int x,int y,int width,int height){MoveWindow(control,scale(x),scale(y),scale(width),scale(height),TRUE);};
  move(GetDlgItem(window_,101),10,8,90,28);move(GetDlgItem(window_,105),110,8,120,28);move(GetDlgItem(window_,107),240,8,90,28);
  move(filter_,340,8,220,300);
+ move(GetDlgItem(window_,kOpenExplorer),570,8,170,28);
  move(GetDlgItem(window_,kBrowseBack),10,44,34,28);move(GetDlgItem(window_,kBrowseForward),48,44,34,28);move(GetDlgItem(window_,kBrowseUp),86,44,34,28);
  MoveWindow(folderLabel_,scale(132),scale(44),std::max(0,static_cast<int>(client.right)-scale(142)),scale(28),TRUE);
  MoveWindow(list_,scale(10),scale(82),std::max(0,static_cast<int>(client.right)-scale(20)),std::max(0,static_cast<int>(client.bottom)-statusHeight-scale(92)),TRUE);

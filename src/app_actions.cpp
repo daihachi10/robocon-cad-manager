@@ -68,6 +68,16 @@ void App::HandleCommand(WORD id){
   const bool moved=id==kBrowseBack?folderNavigation_.Back():(id==kBrowseForward?folderNavigation_.Forward():folderNavigation_.Up());
   if(moved)Populate();return;
  }
+ if(id==kOpenExplorer){
+  if(!repository){MessageBoxW(window_,L"先にリポジトリを設定してください。",L"操作できません",MB_ICONINFORMATION);return;}
+  const auto folder=std::filesystem::path(repository->folder)/std::filesystem::path(folderNavigation_.Current());
+  const auto result=ShellExecuteW(window_,L"open",folder.c_str(),nullptr,nullptr,SW_SHOWNORMAL);
+  if(reinterpret_cast<INT_PTR>(result)<=32){
+   const auto error=LastError(static_cast<DWORD>(reinterpret_cast<INT_PTR>(result)));
+   MessageBoxW(window_,error.c_str(),L"エクスプローラーを開けません",MB_ICONERROR);
+  }
+  return;
+ }
  if(id==setup){ShowSetup();return;}
  if(id==more){HMENU menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,setup,L"設定");AppendMenuW(menu,MF_STRING,lfsSetup,L"LFSロック設定");AppendMenuW(menu,MF_STRING,locks,L"ロック状態を更新");AppendMenuW(menu,MF_STRING,unlock,L"選択ファイルのロック解除");AppendMenuW(menu,MF_STRING,update,L"更新を確認");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,clone,L"複製");AppendMenuW(menu,MF_STRING,pull,L"最新状態だけ取得");AppendMenuW(menu,MF_STRING,refreshLocal,L"一覧だけ更新");AppendMenuW(menu,MF_STRING,open,L"ファイルを開く");POINT point;GetCursorPos(&point);TrackPopupMenu(menu,TPM_LEFTALIGN|TPM_TOPALIGN,point.x,point.y,0,window_,nullptr);DestroyMenu(menu);return;}
  if(id==update){CheckForUpdates(true);return;}

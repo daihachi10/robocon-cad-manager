@@ -6,7 +6,7 @@
 #include "file_browser.h"
 namespace rc {
 constexpr UINT WM_APP_DONE=WM_APP+41, WM_APP_SW_ATTACH=WM_APP+42, WM_APP_UPDATE=WM_APP+44;
-constexpr WORD kBrowseBack=114,kBrowseForward=115,kBrowseUp=116;
+constexpr WORD kBrowseBack=114,kBrowseForward=115,kBrowseUp=116,kOpenExplorer=117;
 struct UiTask { std::function<void()> action; };
 class App {
  friend struct AppBrowserTest;
