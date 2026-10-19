@@ -1,7 +1,7 @@
 {
-  "version": "0.1.4",
-  "installerUrl": "https://github.com/daihachi10/robocon-cad-manager/releases/download/v0.1.4/RoboconCadManagerSetup-0.1.4.exe",
-  "sha256": "419ef3e7a05d7e1a3b58228543f7bf42944c9ce979c8c0636f0b97f382c4e567",
-  "size": 2254510,
-  "notes": "高専ロボコンCAD管理アプリ 0.1.4 — 自動更新のネットワーク接続を修正"
+  "version": "0.1.5",
+  "installerUrl": "https://github.com/daihachi10/robocon-cad-manager/releases/latest/download/RoboconCadManagerSetup.exe",
+  "sha256": "12b0c4ce71d55bd8c6cb8214a15dbd6cca4ac2bae41143fb5da05f441bb9486b",
+  "size": 2254506,
+  "notes": "高専ロボコンCAD管理アプリ 0.1.5 — インストーラー名を固定"
 }

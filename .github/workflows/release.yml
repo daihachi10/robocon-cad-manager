@@ -31,10 +31,9 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           .\packaging\create-release.ps1 -Version $version
-          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/RoboconCadManagerSetup-${{ env.RELEASE_VERSION }}.exe
+            dist/RoboconCadManagerSetup.exe
             dist/update.json

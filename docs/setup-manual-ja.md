@@ -47,7 +47,7 @@ GitHubのリポジトリが非公開の場合、管理者からそのリポジ�
 
 ## 3. アプリをインストールする
 
-1. 管理者から受け取った `RoboconCadManagerSetup-*.exe` をダブルクリックします。
+1. 管理者から受け取った `RoboconCadManagerSetup.exe` をダブルクリックします。
 2. Windows Defender SmartScreenが表示された場合は、配布元とファイル名を管理者に確認してから実行します。
 3. 画面の指示に従ってインストールします。管理者権限は通常必要ありません。
 4. インストール中にGit for Windowsの取得が行われます。通信を切らずに待ちます。

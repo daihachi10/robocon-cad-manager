@@ -28,7 +28,9 @@ $env:APP_VERSION = "0.1.0"
 .\packaging\create-release.ps1 -Version $env:APP_VERSION
 ```
 
-`dist/RoboconCadManagerSetup-<version>.exe` と `dist/update.json` が生成されます。インストーラーは管理者権限を要求せず、既存の `%LocalAppData%\RoboconCadManager` を削除しません。アプリは起動後にGitHub Releasesの `update.json` を1回だけ確認し、最新版があるときだけ確認ダイアログを表示します。通信できない場合は通常の起動を続けます。
+`dist/RoboconCadManagerSetup.exe` と `dist/update.json` が生成されます。インストーラーは管理者権限を要求せず、既存の `%LocalAppData%\RoboconCadManager` を削除しません。アプリは起動後にGitHub Releasesの `update.json` を1回だけ確認し、最新版があるときだけ確認ダイアログを表示します。通信できない場合は通常の起動を続けます。
+
+最新版のインストーラーは常に `https://github.com/daihachi10/robocon-cad-manager/releases/latest/download/RoboconCadManagerSetup.exe` から取得できます。
 
 公開リリースは `daihachi10/robocon-cad-manager` の `v*` タグでGitHub Actionsが作成します。コード署名は行わず、更新インストーラーはHTTPSとSHA-256で検証します。
 

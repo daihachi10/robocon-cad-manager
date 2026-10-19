@@ -35,13 +35,13 @@ if (-not $iscc) { throw 'Inno Setup (ISCC.exe) が見つかりません。' }
 $env:APP_VERSION = $Version
 & $iscc "/DAppBinary=$binary" (Join-Path $root 'installer\RoboconCadManager.iss')
 if ($LASTEXITCODE -ne 0) { throw 'インストーラーの生成に失敗しました。' }
-$setup = Join-Path $dist "RoboconCadManagerSetup-$Version.exe"
+$setup = Join-Path $dist 'RoboconCadManagerSetup.exe'
 $manifest = [ordered]@{
   version = $Version
-  installerUrl = "https://github.com/daihachi10/robocon-cad-manager/releases/download/v$Version/RoboconCadManagerSetup-$Version.exe"
+  installerUrl = 'https://github.com/daihachi10/robocon-cad-manager/releases/latest/download/RoboconCadManagerSetup.exe'
   sha256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
   size = (Get-Item -LiteralPath $setup).Length
-  notes = "高専ロボコンCAD管理アプリ $Version — 自動更新のネットワーク接続を修正"
+  notes = "高専ロボコンCAD管理アプリ $Version — インストーラー名を固定"
 }
 [IO.File]::WriteAllText((Join-Path $dist 'update.json'), ($manifest | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 Write-Host "生成: $setup"
