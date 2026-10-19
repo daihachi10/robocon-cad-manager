@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.24)
-project(RoboconCadManager VERSION 0.1.8 LANGUAGES CXX RC)
+project(RoboconCadManager VERSION 0.1.9 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 configure_file(src/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
-add_executable(RoboconCadManager WIN32
-  "${CMAKE_CURRENT_BINARY_DIR}/app.rc"
-  src/main.cpp src/app.cpp src/config.cpp src/process.cpp src/git.cpp
+set(RC_APP_SOURCES
+  src/app.cpp src/app_browser.cpp src/file_browser.cpp src/config.cpp src/process.cpp src/git.cpp
   src/json.cpp src/cad.cpp src/ui.cpp src/app_actions.cpp src/solidworks_monitor.cpp src/update.cpp)
+add_executable(RoboconCadManager WIN32 "${CMAKE_CURRENT_BINARY_DIR}/app.rc" src/main.cpp ${RC_APP_SOURCES})
 target_include_directories(RoboconCadManager PRIVATE src)
 target_compile_definitions(RoboconCadManager PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX RC_VERSION=L\"${PROJECT_VERSION}\")
 target_link_libraries(RoboconCadManager PRIVATE comctl32 shell32 shlwapi ole32 oleaut32 winhttp bcrypt)
@@ -19,6 +19,16 @@ if(MSVC)
   set_property(TARGET RoboconCadManager PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 install(TARGETS RoboconCadManager RUNTIME DESTINATION .)
+
+# Uses an isolated hidden window and local Git fixtures; never starts the installed app or SolidWorks.
+add_executable(FolderBrowserTest EXCLUDE_FROM_ALL tests/folder_browser_test.cpp ${RC_APP_SOURCES})
+target_include_directories(FolderBrowserTest PRIVATE src)
+target_compile_definitions(FolderBrowserTest PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(FolderBrowserTest PRIVATE comctl32 shell32 shlwapi ole32 oleaut32 winhttp bcrypt)
+if(MSVC)
+  target_compile_options(FolderBrowserTest PRIVATE /W4 /permissive- /utf-8)
+  set_property(TARGET FolderBrowserTest PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 add_executable(RoboconCadManagerMinimal WIN32 src/minimal_main.cpp)
 target_compile_definitions(RoboconCadManagerMinimal PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)

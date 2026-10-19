@@ -15,11 +15,11 @@ LRESULT CALLBACK Procedure(HWND h,UINT msg,WPARAM w,LPARAM l){
  if(gApp)return gApp->WndProc(h,msg,w,l);
  return DefWindowProcW(h,msg,w,l);
 }
-void AddButton(HWND parent,WORD id,const wchar_t* text,int x,int width=90){CreateWindowW(L"BUTTON",text,WS_CHILD|WS_VISIBLE|WS_TABSTOP,x,8,width,27,parent,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);}
-bool IsTemporaryFile(const std::wstring& path){return std::filesystem::path(path).filename().wstring().starts_with(L"~$");}
-std::wstring ChangeDescription(const std::wstring& code){if(code==L"??")return L"新しいファイル";if(code.find(L'D')!=std::wstring::npos)return L"削除";if(code.find(L'R')!=std::wstring::npos)return L"名前変更";if(code.find(L'U')!=std::wstring::npos)return L"競合";if(code.find(L'A')!=std::wstring::npos)return L"追加";return L"変更";}
+
+
+
 std::wstring RelativePath(const Repository& repository,const std::filesystem::path& path){std::error_code error;auto relative=std::filesystem::relative(path,repository.folder,error);return error?path.filename().wstring():relative.generic_wstring();}
-bool MatchesFilter(const std::wstring& path,int mode){if(mode==1)return IEndsWith(path,L".sldprt");if(mode==2)return IEndsWith(path,L".sldasm");if(mode==3)return IEndsWith(path,L".slddrw");return true;}
+
 bool IsLockableCad(const std::wstring& path){return IEndsWith(path,L".sldprt")||IEndsWith(path,L".sldasm")||IEndsWith(path,L".slddrw");}
 HICON CreateApplicationIcon(int size){return static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr),MAKEINTRESOURCEW(IDI_APPLICATION_ICON),IMAGE_ICON,size,size,LR_DEFAULTCOLOR));}
 HICON CreateLockIcon(int size,bool person){BITMAPV5HEADER header{};header.bV5Size=sizeof(header);header.bV5Width=size;header.bV5Height=-size;header.bV5Planes=1;header.bV5BitCount=32;header.bV5Compression=BI_RGB;void* pixels{};HDC dc=GetDC(nullptr);HBITMAP color=CreateDIBSection(dc,reinterpret_cast<BITMAPINFO*>(&header),DIB_RGB_COLORS,&pixels,nullptr,0);ReleaseDC(nullptr,dc);if(!color||!pixels)return nullptr;auto* data=static_cast<DWORD*>(pixels);std::fill(data,data+size*size,0u);const DWORD green=0xFF5AA778u,red=0xFF2333EAu;auto box=[&](int x,int y,int w,int h,DWORD c){for(int yy=y;yy<y+h&&yy<size;++yy)for(int xx=x;xx<x+w&&xx<size;++xx)if(xx>=0&&yy>=0)data[yy*size+xx]=c;};const int b=size/5;box(b,size/2,size-2*b,size/2,person?red:green);box(size/2-b/2,b,b,size/2-b,person?red:green);if(person){box(size*2/3,size/4,size/5,size/5,red);box(size*3/5,size*2/5,size/3,size/5,red);}HBITMAP mask=CreateBitmap(size,size,1,1,nullptr);ICONINFO info{};info.fIcon=TRUE;info.hbmColor=color;info.hbmMask=mask;auto icon=CreateIconIndirect(&info);DeleteObject(mask);DeleteObject(color);return icon;}
@@ -37,19 +37,18 @@ LRESULT App::WndProc(HWND h,UINT msg,WPARAM w,LPARAM l){
  if(!window_)window_=h;
  switch(msg){
  case WM_CREATE:{
-  list_=CreateWindowExW(WS_EX_CLIENTEDGE,WC_LISTVIEWW,L"",WS_CHILD|WS_VISIBLE|LVS_REPORT|LVS_SINGLESEL|LVS_SHOWSELALWAYS,10,44,1085,554,window_,nullptr,instance_,nullptr);ListView_SetExtendedListViewStyle(list_,LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER|LVS_EX_CHECKBOXES);images_=ImageList_Create(24,24,ILC_COLOR32|ILC_MASK,2,0);auto openIcon=CreateLockIcon(24,false),lockedIcon=CreateLockIcon(24,true);ImageList_AddIcon(images_,openIcon);ImageList_AddIcon(images_,lockedIcon);DestroyIcon(openIcon);DestroyIcon(lockedIcon);ListView_SetImageList(list_,images_,LVSIL_SMALL);
-  const wchar_t* columns[]={L"項目",L"状態",L"編集中",L"最終編集",L"容量"};const int widths[]={330,130,190,310,90};for(int i=0;i<5;++i){LVCOLUMNW col{};col.mask=LVCF_TEXT|LVCF_WIDTH;col.pszText=(LPWSTR)columns[i];col.cx=widths[i];ListView_InsertColumn(list_,i,&col);}
-  status_=CreateWindowW(STATUSCLASSNAMEW,L"「設定」からリポジトリを登録してください。",WS_CHILD|WS_VISIBLE,0,0,0,0,window_,nullptr,instance_,nullptr);
-  AddButton(window_,kRefresh,L"更新",10);AddButton(window_,kCommit,L"保存して送信",110,120);AddButton(window_,kMore,L"その他",240);filter_=CreateWindowW(WC_COMBOBOXW,L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|CBS_DROPDOWNLIST,340,8,190,300,window_,(HMENU)(INT_PTR)kFilter,instance_,nullptr);for(auto text:{L"すべてのファイル",L"パーツ (.SLDPRT)",L"アセンブリ (.SLDASM)",L"図面 (.SLDDRW)"})SendMessageW(filter_,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text));SendMessageW(filter_,CB_SETCURSEL,0,0);UpdateFonts(GetDpiForWindow(window_));
+  CreateBrowserControls();
   std::wstring error;config_.Load(error);if(!error.empty())MessageBoxW(window_,error.c_str(),L"設定",MB_ICONWARNING);solidworks_.Start(window_,WM_APP_SW_ATTACH,[this](const rc::SolidWorksEvent& event){HandleSolidWorksEvent(event);});if(!config_.Repositories().empty()){selected_=0;StartLocalWatcher();this->Refresh();}else Populate();PostMessageW(window_,WM_APP_UPDATE,0,0);return 0;
  }
- case WM_SIZE:{SendMessageW(status_,WM_SIZE,0,0);RECT rect;GetClientRect(window_,&rect);MoveWindow(list_,10,44,rect.right-20,rect.bottom-78,TRUE);return 0;}
+ case WM_SIZE:LayoutBrowser();return 0;
+ case WM_SYSKEYDOWN:if(w==VK_LEFT){HandleCommand(kBrowseBack);return 0;}if(w==VK_RIGHT){HandleCommand(kBrowseForward);return 0;}if(w==VK_UP){HandleCommand(kBrowseUp);return 0;}break;
+ case WM_GETMINMAXINFO:{auto* limits=reinterpret_cast<MINMAXINFO*>(l);const auto dpi=GetDpiForWindow(window_);limits->ptMinTrackSize={MulDiv(640,dpi,96),MulDiv(320,dpi,96)};return 0;}
  case WM_COMMAND:if(LOWORD(w)==kFilter&&HIWORD(w)==CBN_SELCHANGE){filterMode_=static_cast<int>(SendMessageW(filter_,CB_GETCURSEL,0,0));Populate();return 0;}HandleCommand(LOWORD(w));return 0;
  case WM_ACTIVATE:if(LOWORD(w)!=WA_INACTIVE&&Current())RefreshLocal();return 0;
  case kLocalChangedMessage:localRefreshPosted_.store(false);if(Current())RefreshLocal();return 0;
  case WM_APP_DONE:{auto task=(UiTask*)l;task->action();delete task;return 0;} case WM_APP_SW_ATTACH:solidworks_.Attach();return 0;
  case WM_APP_UPDATE:CheckForUpdates(false);return 0;
- case WM_NOTIFY:{auto note=(NMHDR*)l;if(note->hwndFrom==list_&&note->code==NM_DBLCLK)HandleCommand(kOpen);if(note->hwndFrom==list_&&note->code==LVN_KEYDOWN){auto key=reinterpret_cast<NMLVKEYDOWN*>(l);if(key->wVKey==VK_DELETE){DeleteSelectedFile();return 0;}}if(note->hwndFrom==list_&&note->code==LVN_ITEMCHANGED&&!populating_){auto changed=(NMLISTVIEW*)l;if(changed->iItem>=0&&changed->iItem<(int)listPaths_.size()&&(changed->uChanged&LVIF_STATE)){const auto oldState=changed->uOldState&LVIS_STATEIMAGEMASK;const auto newState=changed->uNewState&LVIS_STATEIMAGEMASK;if(oldState!=newState&&newState)changeChecks_[listPaths_[changed->iItem]]=newState==INDEXTOSTATEIMAGEMASK(2);}}if(note->hwndFrom==list_&&note->code==NM_CUSTOMDRAW){auto draw=reinterpret_cast<NMLVCUSTOMDRAW*>(l);if(draw->nmcd.dwDrawStage==CDDS_PREPAINT)return CDRF_NOTIFYITEMDRAW;if(draw->nmcd.dwDrawStage==CDDS_ITEMPREPAINT)return CDRF_NOTIFYSUBITEMDRAW;if((draw->nmcd.dwDrawStage&(CDDS_ITEMPREPAINT|CDDS_SUBITEM))==(CDDS_ITEMPREPAINT|CDDS_SUBITEM)){const int row=static_cast<int>(draw->nmcd.dwItemSpec);if(row>=0&&row<(int)listPaths_.size()){const auto change=std::find_if(changes_.begin(),changes_.end(),[&](const GitStatus& value){return value.path==listPaths_[row];});if(change!=changes_.end()){const bool removed=change->code.find(L'D')!=std::wstring::npos;draw->clrText=removed?RGB(190,30,30):RGB(25,125,55);if(removed&&draw->iSubItem==0&&strikeFont_){SelectObject(draw->nmcd.hdc,strikeFont_);return CDRF_NEWFONT;}}}}return CDRF_DODEFAULT;}return 0;}
+ case WM_NOTIFY:return HandleListNotification(l);
  case WM_DPICHANGED:{auto rect=(RECT*)l;SetWindowPos(window_,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);UpdateFonts(GetDpiForWindow(window_));return 0;}
  case WM_DESTROY:StopLocalWatcher();solidworks_.Stop();if(images_)ImageList_Destroy(images_);if(font_)DeleteObject(font_);if(strikeFont_)DeleteObject(strikeFont_);PostQuitMessage(0);return 0;
  }return DefWindowProcW(h,msg,w,l);
@@ -57,25 +56,75 @@ LRESULT App::WndProc(HWND h,UINT msg,WPARAM w,LPARAM l){
 Repository* App::Current(){return selected_>=0&&selected_<(int)config_.Repositories().size()?const_cast<Repository*>(&config_.Repositories()[selected_]):nullptr;}
 const Repository* App::Current()const{return selected_>=0&&selected_<(int)config_.Repositories().size()?&config_.Repositories()[selected_]:nullptr;}
 void App::SetStatus(const std::wstring& text){SetWindowTextW(status_,text.c_str());}
-void App::DeleteSelectedFile(){const int selected=ListView_GetNextItem(list_,-1,LVNI_SELECTED);if(selected<0||selected>=static_cast<int>(listPaths_.size())){MessageBoxW(window_,L"削除するファイルを選択してください。",L"ファイルを選択してください",MB_ICONINFORMATION);return;}const auto path=listPaths_[selected];auto local=localFiles_.find(path);if(local==localFiles_.end()){MessageBoxW(window_,L"この項目には削除できるローカルファイルがありません。",L"ファイルを削除できません",MB_ICONINFORMATION);return;}if(opened_.contains(path)){MessageBoxW(window_,L"SolidWorksで開いているファイルは削除できません。先に閉じてください。",L"ファイルを削除できません",MB_ICONWARNING);return;}const auto message=L"次のファイルをローカルから削除します。\n\n"+path+L"\n\n削除後は保存して送信するまでGitHubへは反映されません。続けますか？";if(MessageBoxW(window_,message.c_str(),L"ファイルを削除",MB_YESNO|MB_ICONWARNING)!=IDYES)return;if(!DeleteFileW(local->second.c_str())){const auto error=LastError();MessageBoxW(window_,error.c_str(),L"ファイルを削除できません",MB_ICONERROR);return;}SetStatus(L"ファイルを削除しました。保存して送信すると共有されます。");RefreshLocal();}
-void App::StartLocalWatcher(){StopLocalWatcher();auto* repository=Current();if(!repository||repository->folder.empty())return;localChangeStop_=CreateEventW(nullptr,TRUE,FALSE,nullptr);if(!localChangeStop_)return;const auto folder=repository->folder;localRefreshPosted_=false;localChangeThread_=std::thread([this,folder]{const HANDLE directory=CreateFileW(folder.c_str(),FILE_LIST_DIRECTORY,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OVERLAPPED,nullptr);if(directory==INVALID_HANDLE_VALUE)return;const HANDLE completion=CreateEventW(nullptr,TRUE,FALSE,nullptr);if(!completion){CloseHandle(directory);return;}std::vector<BYTE> buffer(64*1024);OVERLAPPED overlapped{};overlapped.hEvent=completion;const HANDLE handles[]={localChangeStop_,completion};for(;;){ResetEvent(completion);DWORD ignored{};if(!ReadDirectoryChangesW(directory,buffer.data(),static_cast<DWORD>(buffer.size()),TRUE,FILE_NOTIFY_CHANGE_FILE_NAME|FILE_NOTIFY_CHANGE_DIR_NAME|FILE_NOTIFY_CHANGE_LAST_WRITE|FILE_NOTIFY_CHANGE_SIZE,&ignored,&overlapped,nullptr)&&GetLastError()!=ERROR_IO_PENDING)break;const auto result=WaitForMultipleObjects(2,handles,FALSE,INFINITE);if(result==WAIT_OBJECT_0){CancelIoEx(directory,&overlapped);break;}if(result!=WAIT_OBJECT_0+1)break;DWORD bytes{};if(!GetOverlappedResult(directory,&overlapped,&bytes,FALSE)||bytes==0)continue;bool relevant=false;for(DWORD offset=0;offset<bytes;){auto* entry=reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer.data()+offset);std::wstring name(entry->FileName,entry->FileNameLength/sizeof(wchar_t));if(name!=L".git"&&!name.starts_with(L".git\\")&&!std::filesystem::path(name).filename().wstring().starts_with(L"~$")){relevant=true;}if(entry->NextEntryOffset==0)break;offset+=entry->NextEntryOffset;}if(relevant&&!localRefreshPosted_.exchange(true))PostMessageW(window_,kLocalChangedMessage,0,0);}CloseHandle(completion);CloseHandle(directory);});}
+void App::DeleteSelectedFile(){const int selected=ListView_GetNextItem(list_,-1,LVNI_SELECTED);if(selected<0||selected>=static_cast<int>(listPaths_.size())){MessageBoxW(window_,L"削除するファイルを選択してください。",L"ファイルを選択してください",MB_ICONINFORMATION);return;}if(selected<static_cast<int>(browserItems_.size())&&browserItems_[selected].directory){MessageBoxW(window_,L"フォルダの中へ移動し、削除するファイルを選択してください。",L"ファイルを選択してください",MB_ICONINFORMATION);return;}const auto path=listPaths_[selected];auto local=localFiles_.find(path);if(local==localFiles_.end()){MessageBoxW(window_,L"この項目には削除できるローカルファイルがありません。",L"ファイルを削除できません",MB_ICONINFORMATION);return;}if(opened_.contains(path)){MessageBoxW(window_,L"SolidWorksで開いているファイルは削除できません。先に閉じてください。",L"ファイルを削除できません",MB_ICONWARNING);return;}const auto message=L"次のファイルをローカルから削除します。\n\n"+path+L"\n\n削除後は保存して送信するまでGitHubへは反映されません。続けますか？";if(MessageBoxW(window_,message.c_str(),L"ファイルを削除",MB_YESNO|MB_ICONWARNING)!=IDYES)return;if(!DeleteFileW(local->second.c_str())){const auto error=LastError();MessageBoxW(window_,error.c_str(),L"ファイルを削除できません",MB_ICONERROR);return;}SetStatus(L"ファイルを削除しました。保存して送信すると共有されます。");RefreshLocal();}
+void App::StartLocalWatcher(){
+ StopLocalWatcher();++repositoryGeneration_;
+ const auto* current=Current();const auto folderPath=current?current->folder:std::wstring{};
+ if(folderPath!=browsedRepository_){
+  browsedRepository_=folderPath;folderNavigation_.Reset();cad_.clear();changes_.clear();changeChecks_.clear();latestCommits_.clear();locks_.clear();locksKnown_=false;Populate();
+ }
+auto* repository=Current();if(!repository||repository->folder.empty())return;localChangeStop_=CreateEventW(nullptr,TRUE,FALSE,nullptr);if(!localChangeStop_)return;const auto folder=repository->folder;localRefreshPosted_=false;localChangeThread_=std::thread([this,folder]{const HANDLE directory=CreateFileW(folder.c_str(),FILE_LIST_DIRECTORY,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OVERLAPPED,nullptr);if(directory==INVALID_HANDLE_VALUE)return;const HANDLE completion=CreateEventW(nullptr,TRUE,FALSE,nullptr);if(!completion){CloseHandle(directory);return;}std::vector<BYTE> buffer(64*1024);OVERLAPPED overlapped{};overlapped.hEvent=completion;const HANDLE handles[]={localChangeStop_,completion};for(;;){ResetEvent(completion);DWORD ignored{};if(!ReadDirectoryChangesW(directory,buffer.data(),static_cast<DWORD>(buffer.size()),TRUE,FILE_NOTIFY_CHANGE_FILE_NAME|FILE_NOTIFY_CHANGE_DIR_NAME|FILE_NOTIFY_CHANGE_LAST_WRITE|FILE_NOTIFY_CHANGE_SIZE,&ignored,&overlapped,nullptr)&&GetLastError()!=ERROR_IO_PENDING)break;const auto result=WaitForMultipleObjects(2,handles,FALSE,INFINITE);if(result==WAIT_OBJECT_0){CancelIoEx(directory,&overlapped);DWORD cancelled{};GetOverlappedResult(directory,&overlapped,&cancelled,TRUE);break;}if(result!=WAIT_OBJECT_0+1)break;DWORD bytes{};if(!GetOverlappedResult(directory,&overlapped,&bytes,FALSE))continue;bool relevant=bytes==0;for(DWORD offset=0;offset<bytes;){auto* entry=reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer.data()+offset);std::wstring name(entry->FileName,entry->FileNameLength/sizeof(wchar_t));if(name!=L".git"&&!name.starts_with(L".git\\")&&!std::filesystem::path(name).filename().wstring().starts_with(L"~$")){relevant=true;}if(entry->NextEntryOffset==0)break;offset+=entry->NextEntryOffset;}if(relevant&&!localRefreshPosted_.exchange(true))PostMessageW(window_,kLocalChangedMessage,0,0);}CloseHandle(completion);CloseHandle(directory);});}
 void App::StopLocalWatcher(){if(localChangeStop_)SetEvent(localChangeStop_);if(localChangeThread_.joinable())localChangeThread_.join();if(localChangeNotify_&&localChangeNotify_!=INVALID_HANDLE_VALUE)FindCloseChangeNotification(localChangeNotify_);if(localChangeStop_)CloseHandle(localChangeStop_);localChangeNotify_=nullptr;localChangeStop_=nullptr;localRefreshPosted_=false;}
-void App::UpdateFonts(UINT dpi){if(font_)DeleteObject(font_);if(strikeFont_)DeleteObject(strikeFont_);font_=CreateFontW(-MulDiv(10,static_cast<int>(dpi),72),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Yu Gothic UI");LOGFONTW strike{};GetObjectW(font_,sizeof(strike),&strike);strike.lfStrikeOut=TRUE;strikeFont_=CreateFontIndirectW(&strike);EnumChildWindows(window_,[](HWND child,LPARAM font){SendMessageW(child,WM_SETFONT,font,TRUE);return TRUE;},reinterpret_cast<LPARAM>(font_));}
+void App::UpdateFonts(UINT dpi){
+ if(font_)DeleteObject(font_);if(strikeFont_)DeleteObject(strikeFont_);
+ font_=CreateFontW(-MulDiv(10,static_cast<int>(dpi),72),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Yu Gothic UI");
+ LOGFONTW strike{};GetObjectW(font_,sizeof(strike),&strike);strike.lfStrikeOut=TRUE;strikeFont_=CreateFontIndirectW(&strike);
+ EnumChildWindows(window_,[](HWND child,LPARAM font){SendMessageW(child,WM_SETFONT,font,TRUE);return TRUE;},reinterpret_cast<LPARAM>(font_));
+ const int widths[]={300,170,190,310,90};for(int i=0;i<5;++i)ListView_SetColumnWidth(list_,i,MulDiv(widths[i],dpi,96));
+ UpdateBrowserImages(dpi);LayoutBrowser(dpi);
+}
+void App::UpdateBrowserImages(UINT dpi){
+ if(!dpi)dpi=GetDpiForWindow(window_);
+ const int size=MulDiv(24,dpi,96);
+ auto images=ImageList_Create(size,size,ILC_COLOR32|ILC_MASK,3,0);
+ if(!images)return;
+ for(bool person:{false,true}){auto icon=CreateLockIcon(size,person);ImageList_AddIcon(images,icon);DestroyIcon(icon);}
+ SHSTOCKICONINFO folder{sizeof(folder)};
+ if(SUCCEEDED(SHGetStockIconInfo(SIID_FOLDER,SHGSI_ICON|SHGSI_SMALLICON,&folder))){ImageList_AddIcon(images,folder.hIcon);DestroyIcon(folder.hIcon);}
+ const auto old=ListView_SetImageList(list_,images,LVSIL_SMALL);images_=images;if(old)ImageList_Destroy(old);
+}
 void App::Background(std::function<void()> task){std::thread([this,task=std::move(task)]()mutable{try{task();}catch(const std::exception& ex){auto message=Wide(ex.what());if(message.empty())message=L"バックグラウンド処理でエラーが発生しました。";auto*done=new UiTask{[this,message]{SetStatus(message);MessageBoxW(window_,message.c_str(),L"処理エラー",MB_ICONERROR);}};if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(done)))delete done;}catch(...){auto*done=new UiTask{[this]{const auto message=L"バックグラウンド処理で不明なエラーが発生しました。";SetStatus(message);MessageBoxW(window_,message,L"処理エラー",MB_ICONERROR);}};if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(done)))delete done;}}).detach();}
-void App::Refresh(){latestCommits_.clear();locksKnown_=false;RefreshFiles();RefreshChanges();RefreshLocks();SetStatus(L"ローカル情報を更新しています。");}
-void App::RefreshLocal(){latestCommits_.clear();RefreshFiles();RefreshChanges();SetStatus(L"ローカルの変更を更新しています。");}
-void App::RefreshFiles(){if(!Current())return;Background([this,r=*Current()]{auto files=ScanCad(r);std::vector<std::wstring> paths;paths.reserve(files.size());for(const auto& file:files)paths.push_back(RelativePath(r,file.path));auto commits=git_.LatestCommits(r,paths);PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,files=std::move(files),commits=std::move(commits)]()mutable{latestCommits_.insert(commits.begin(),commits.end());cad_=std::move(files);Populate();}});});}
-void App::RefreshChanges(){if(!Current())return;Background([this,r=*Current()]{std::wstring error;auto changes=git_.Status(r,error);changes.erase(std::remove_if(changes.begin(),changes.end(),[](const GitStatus& change){return IsTemporaryFile(change.path);}),changes.end());std::vector<std::wstring> paths;paths.reserve(changes.size());for(const auto& change:changes)paths.push_back(change.path);auto commits=git_.LatestCommits(r,paths);PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,changes=std::move(changes),commits=std::move(commits),error]{latestCommits_.insert(commits.begin(),commits.end());std::map<std::wstring,bool> nextChecks;for(const auto& change:changes){auto old=changeChecks_.find(change.path);nextChecks[change.path]=old!=changeChecks_.end()?old->second:true;}changeChecks_=std::move(nextChecks);changes_=std::move(changes);Populate();SetStatus(error.empty()?L"一覧を更新しました。":error);}});});}
-void App::RefreshLocks(){if(!Current())return;Background([this,r=*Current()]{std::wstring error;std::lock_guard guard(lockWorkMutex_);auto result=git_.ListLocks(r,error);PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,result=std::move(result),error]()mutable{if(error.empty()){locks_.clear();for(auto& lock:result)locks_[lock.path]=std::move(lock);locksKnown_=true;}else locksKnown_=false;Populate();if(!error.empty())SetStatus(error);}});});}
-void App::Populate(){
- if(!list_)return;populating_=true;ListView_DeleteAllItems(list_);listPaths_.clear();localFiles_.clear();const auto* repository=Current();if(!repository){populating_=false;return;}
- std::map<std::wstring,const GitStatus*> changed;for(const auto& change:changes_)changed[change.path]=&change;
- auto checked=[this](const std::wstring& path){auto found=changeChecks_.find(path);return found!=changeChecks_.end()&&found->second;};
- auto editor=[this](const std::wstring& path){auto found=latestCommits_.find(path);return found==latestCommits_.end()?std::wstring(L"未保存"):found->second.author+L" ("+found->second.message+L")";};
- auto lockText=[this](const std::wstring& path){if(!locksKnown_)return std::wstring(L"ロック状態を確認できません");auto found=locks_.find(path);if(found==locks_.end())return std::wstring(L"-");if(found->second.ours)return std::wstring(L"自分が編集中");return found->second.owner.empty()?std::wstring(L"他の利用者が編集中"):L"["+found->second.owner+L"] が編集中";};
- auto add=[&](const std::wstring& path,const std::wstring& state,const std::wstring& size,bool selected,const std::filesystem::path* local){auto found=locks_.find(path);const int image=!locksKnown_?-1:(found==locks_.end()?0:1);LVITEMW item{};item.mask=LVIF_TEXT|LVIF_IMAGE;item.iItem=ListView_GetItemCount(list_);item.pszText=(LPWSTR)path.c_str();item.iImage=image;ListView_InsertItem(list_,&item);auto editing=lockText(path),last=editor(path);ListView_SetItemText(list_,item.iItem,1,(LPWSTR)state.c_str());ListView_SetItemText(list_,item.iItem,2,(LPWSTR)editing.c_str());ListView_SetItemText(list_,item.iItem,3,(LPWSTR)last.c_str());ListView_SetItemText(list_,item.iItem,4,(LPWSTR)size.c_str());ListView_SetCheckState(list_,item.iItem,selected);listPaths_.push_back(path);if(local)localFiles_[path]=*local;};
- for(const auto& file:cad_){auto path=RelativePath(*repository,file.path);auto found=changed.find(path);if(!MatchesFilter(path,filterMode_)){changed.erase(path);continue;}std::wstring state=found==changed.end()?L"変更なし":ChangeDescription(found->second->code);if(file.lfsPointer)state+=L" / 大容量ファイルの本体未取得";if(file.suspiciousName)state+=L" / 版名を見直してください";add(path,state,std::to_wstring(file.bytes/1024)+L" KB",checked(path),&file.path);changed.erase(path);}
- for(const auto& [path,change]:changed){if(!MatchesFilter(path,filterMode_))continue;std::error_code error;const auto local=std::filesystem::path(repository->folder)/std::filesystem::path(path);const bool exists=std::filesystem::is_regular_file(local,error);const auto bytes=exists?std::filesystem::file_size(local,error):0;add(path,ChangeDescription(change->code),exists&&!error?std::to_wstring(bytes/1024)+L" KB":L"-",checked(path),exists?&local:nullptr);}populating_=false;
+void App::Refresh(){locksKnown_=false;RefreshLocal();RefreshLocks();}
+void App::RefreshLocal(){
+ if(!Current())return;
+ if(localRefreshRunning_){localRefreshAgain_=true;return;}
+ localRefreshRunning_=true;localRefreshAgain_=false;
+ SetStatus(L"ローカルの変更を更新しています。");
+ Background([this,r=*Current(),generation=repositoryGeneration_]{
+  std::vector<CadFile> files;std::vector<GitStatus> changes;std::map<std::wstring,LastCommit> commits;std::wstring error;
+  try{
+   files=ScanCad(r);changes=git_.Status(r,error);
+   changes.erase(std::remove_if(changes.begin(),changes.end(),[](const GitStatus& change){return IsTemporaryCadPath(change.path);}),changes.end());
+   if(error.empty()){
+    std::set<std::wstring> paths;
+    for(const auto& file:files)if(!file.directory)paths.insert(RelativePath(r,file.path));
+    for(const auto& change:changes)paths.insert(change.path);
+    commits=git_.LatestCommits(r,std::vector<std::wstring>(paths.begin(),paths.end()));
+   }
+  }catch(const std::exception&){error=L"ローカル情報を読み取れません。作業フォルダとファイルへのアクセスを確認してください。";}
+  auto* task=new UiTask{[this,generation,folder=r.folder,files=std::move(files),changes=std::move(changes),commits=std::move(commits),error]()mutable{
+   localRefreshRunning_=false;
+   if(Current()&&Current()->folder==folder&&repositoryGeneration_==generation){
+    if(error.empty()){
+     changeChecks_=UpdatedChangeChecks(changes,changeChecks_);cad_=std::move(files);changes_=std::move(changes);latestCommits_=std::move(commits);Populate();
+     SetStatus(L"一覧を更新しました。変更 "+std::to_wstring(changes_.size())+L" 件");
+    }else SetStatus(error);
+   }
+   if(localRefreshAgain_){localRefreshAgain_=false;RefreshLocal();}
+  }};
+  if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(task)))delete task;
+ });
+}
+void App::RefreshLocks(){
+ if(!Current())return;
+ Background([this,r=*Current(),generation=repositoryGeneration_]{
+  std::wstring error;std::lock_guard guard(lockWorkMutex_);auto result=git_.ListLocks(r,error);
+  PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,generation,result=std::move(result),error]()mutable{
+   if(repositoryGeneration_!=generation)return;
+   if(error.empty()){locks_.clear();for(auto& lock:result)locks_[lock.path]=std::move(lock);locksKnown_=true;}else locksKnown_=false;
+   Populate();if(!error.empty())SetStatus(error);
+  }});
+ });
 }
 void App::ContinueWithForeignLock(const std::wstring& path,const std::filesystem::path& localPath,const std::wstring& owner,bool openAfter){
  const auto message=(owner.empty()?std::wstring(L"他の利用者が編集中です。"):owner+L" さんが編集中です。")+
@@ -130,5 +179,5 @@ void App::LockPath(const std::wstring& path,bool openAfter){
 }
 void App::ClosedPath(const std::wstring& path){opened_.erase(path);if(!Current())return;auto found=locks_.find(path);if(found==locks_.end()||!found->second.ours){Populate();return;}Background([this,r=*Current(),path,lock=found->second]{if(git_.IsDirty(r,path)){PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,path]{pendingUnlock_.insert(path);SetStatus(L"変更済みのため、送信完了までロックを保持します。 "+path);Populate();}});return;}std::wstring error;bool ok;{std::lock_guard guard(lockWorkMutex_);ok=git_.Unlock(r,lock,error);}PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,path,ok,error]{if(ok){locks_.erase(path);pendingUnlock_.erase(path);}else SetStatus(error);Populate();}});});}
 void App::ReleasePendingLocks(){auto* repository=Current();if(!repository)return;std::set<std::wstring> actuallyOpen;for(const auto& absolute:solidworks_.OpenDocuments()){std::error_code error;auto relative=std::filesystem::relative(absolute,repository->folder,error);if(!error){auto path=relative.generic_wstring();if(IsLockableCad(path))actuallyOpen.insert(std::move(path));}}std::vector<std::wstring> release;for(const auto&[path,lock]:locks_){if(!lock.ours)continue;if(actuallyOpen.contains(path)){opened_.insert(path);continue;}opened_.erase(path);release.push_back(path);}for(const auto& path:release)ClosedPath(path);}
-void App::HandleSolidWorksEvent(const SolidWorksEvent& event){auto* repo=Current();if(!repo)return;std::error_code error;auto relative=std::filesystem::relative(event.path,repo->folder,error);if(error)return;auto path=relative.generic_wstring();if(IsTemporaryFile(path)||!IsLockableCad(path))return;switch(event.kind){case SolidWorksEventKind::Opened:case SolidWorksEventKind::BeginContextEdit:LockPath(path);break;case SolidWorksEventKind::Closed:case SolidWorksEventKind::EndContextEdit:ClosedPath(path);break;}}
+void App::HandleSolidWorksEvent(const SolidWorksEvent& event){auto* repo=Current();if(!repo)return;std::error_code error;auto relative=std::filesystem::relative(event.path,repo->folder,error);if(error)return;auto path=relative.generic_wstring();if(IsTemporaryCadPath(path)||!IsLockableCad(path))return;switch(event.kind){case SolidWorksEventKind::Opened:case SolidWorksEventKind::BeginContextEdit:LockPath(path);break;case SolidWorksEventKind::Closed:case SolidWorksEventKind::EndContextEdit:ClosedPath(path);break;}}
 }

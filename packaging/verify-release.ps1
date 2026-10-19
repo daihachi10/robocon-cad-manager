@@ -17,6 +17,17 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Gitへの氏名・メール反映の検証に失敗しました。' }
 } finally { Pop-Location }
 
+$cmakeCommand = Get-Command cmake -ErrorAction SilentlyContinue
+$cmake = if ($cmakeCommand) { $cmakeCommand.Source } else {
+  Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1 -ExpandProperty FullName
+}
+& $cmake --build (Join-Path $root 'build-release') --config Release --target FolderBrowserTest
+if ($LASTEXITCODE -ne 0) { throw 'フォルダ表示検証プログラムのビルドに失敗しました。' }
+$folderTest=Join-Path $root 'build-release\Release\FolderBrowserTest.exe'
+if (-not (Test-Path -LiteralPath $folderTest)) { $folderTest=Join-Path $root 'build-release\FolderBrowserTest.exe' }
+& $folderTest $GitExecutable (Join-Path $testDir ([guid]::NewGuid().ToString('N')))
+if ($LASTEXITCODE -ne 0) { throw 'フォルダ表示・変更検出・自動チェックの検証に失敗しました。' }
+
 # Only CI may install a test instance. Local verification never changes the installed app.
 if ($TestInstaller) {
   if ($env:GITHUB_ACTIONS -ne 'true') { throw 'インストール試験はGitHub Actions専用です。' }

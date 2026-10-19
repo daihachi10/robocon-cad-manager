@@ -11,4 +11,31 @@ bool MakeCadWritable(const std::filesystem::path& path,std::wstring& error) {
  }
  return true;
 }
-std::vector<CadFile>ScanCad(const Repository&r){std::vector<CadFile>v;std::error_code e;std::filesystem::recursive_directory_iterator i(r.folder,std::filesystem::directory_options::skip_permission_denied,e),end;if(e)return v;while(i!=end){const auto path=i->path();const bool directory=i->is_directory(e);if(e){e.clear();i.increment(e);continue;}if(directory&&path.filename()==L".git"){i.disable_recursion_pending();i.increment(e);continue;}const bool regular=i->is_regular_file(e);if(e){e.clear();i.increment(e);continue;}const auto name=path.filename().wstring();if(regular&&!name.starts_with(L"~$")&&Managed(path.wstring())){CadFile f;f.path=path;f.bytes=i->file_size(e);if(e){f.bytes=0;e.clear();}f.suspiciousName=name.find(L"最終")!=std::wstring::npos;std::ifstream in(f.path,std::ios::binary);std::string s(80,'\0');in.read(s.data(),static_cast<std::streamsize>(s.size()));s.resize(static_cast<size_t>(in.gcount()));f.lfsPointer=s.starts_with("version https://git-lfs.github.com/spec/");v.push_back(std::move(f));}i.increment(e);if(e)e.clear();}return v;}bool OpenFile(const std::filesystem::path&p,std::wstring&e){auto h=ShellExecuteW(nullptr,L"open",p.c_str(),nullptr,p.parent_path().c_str(),SW_SHOWNORMAL);if((INT_PTR)h<=32){e=LastError((DWORD)(INT_PTR)h);return false;}return true;}std::vector<std::wstring>ConflictingFiles(const std::filesystem::path&r){auto x=RunProcess(L"git",{L"diff",L"--name-only",L"--diff-filter=U"},r);std::vector<std::wstring>v;std::wistringstream s(x.output);for(std::wstring l;std::getline(s,l);)if(!Trim(l).empty()&&!std::filesystem::path(l).filename().wstring().starts_with(L"~$"))v.push_back(Trim(l));return v;}}
+std::vector<CadFile> ScanCad(const Repository&r){
+ std::vector<CadFile> files;std::error_code error;
+ std::filesystem::recursive_directory_iterator it(r.folder,std::filesystem::directory_options::skip_permission_denied,error),end;
+ if(error)return files;
+ while(it!=end){
+  const auto path=it->path();const auto name=path.filename().wstring();
+  const bool directory=it->is_directory(error);
+  if(error){error.clear();it.increment(error);continue;}
+  const auto attributes=GetFileAttributesW(path.c_str());
+  const bool excluded=name==L".git"||name.starts_with(L"~$")||
+   (attributes!=INVALID_FILE_ATTRIBUTES&&(attributes&FILE_ATTRIBUTE_REPARSE_POINT));
+  if(excluded){if(directory)it.disable_recursion_pending();}
+  else if(directory){CadFile entry;entry.path=path;entry.directory=true;files.push_back(std::move(entry));}
+  else if(it->is_regular_file(error)&&!error){
+   CadFile file;file.path=path;file.bytes=it->file_size(error);if(error){file.bytes=0;error.clear();}
+   if(Managed(path.wstring())){
+    file.suspiciousName=name.find(L"最終")!=std::wstring::npos;
+    std::ifstream input(path,std::ios::binary);std::string head(80,'\0');input.read(head.data(),static_cast<std::streamsize>(head.size()));head.resize(static_cast<size_t>(input.gcount()));
+    file.lfsPointer=head.starts_with("version https://git-lfs.github.com/spec/");
+   }
+   files.push_back(std::move(file));
+  }
+  error.clear();it.increment(error);if(error)error.clear();
+ }
+ return files;
+}
+bool OpenFile(const std::filesystem::path&p,std::wstring&e){auto h=ShellExecuteW(nullptr,L"open",p.c_str(),nullptr,p.parent_path().c_str(),SW_SHOWNORMAL);if((INT_PTR)h<=32){e=LastError((DWORD)(INT_PTR)h);return false;}return true;}
+std::vector<std::wstring>ConflictingFiles(const std::filesystem::path&r){auto x=RunProcess(L"git",{L"diff",L"--name-only",L"--diff-filter=U"},r);std::vector<std::wstring>v;std::wistringstream s(x.output);for(std::wstring l;std::getline(s,l);)if(!Trim(l).empty()&&!std::filesystem::path(l).filename().wstring().starts_with(L"~$"))v.push_back(Trim(l));return v;}}

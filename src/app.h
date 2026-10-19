@@ -3,15 +3,21 @@
 #include "git.h"
 #include "solidworks_monitor.h"
 #include "update.h"
+#include "file_browser.h"
 namespace rc {
 constexpr UINT WM_APP_DONE=WM_APP+41, WM_APP_SW_ATTACH=WM_APP+42, WM_APP_UPDATE=WM_APP+44;
+constexpr WORD kBrowseBack=114,kBrowseForward=115,kBrowseUp=116;
 struct UiTask { std::function<void()> action; };
 class App {
+ friend struct AppBrowserTest;
  HINSTANCE instance_{}; HWND window_{},list_{},status_{},filter_{}; HIMAGELIST images_{}; HFONT font_{},strikeFont_{};
  ConfigStore config_; GitClient git_; SolidWorksMonitor solidworks_; int selected_{-1},filterMode_{};
  std::vector<CadFile> cad_; std::vector<GitStatus> changes_; std::map<std::wstring,LastCommit> latestCommits_; std::map<std::wstring,LockInfo> locks_; std::set<std::wstring> opened_,pendingUnlock_; std::map<std::wstring,bool> changeChecks_; std::vector<std::wstring> listPaths_; std::map<std::wstring,std::filesystem::path> localFiles_; bool locksKnown_{},populating_{}; std::mutex lockWorkMutex_; HANDLE localChangeStop_{}; HANDLE localChangeNotify_{}; std::thread localChangeThread_; std::atomic<bool> localRefreshPosted_{false};
+ FolderNavigation folderNavigation_;std::vector<BrowserItem> browserItems_;HWND folderLabel_{};
+ std::wstring browsedRepository_;bool localRefreshRunning_{},localRefreshAgain_{};uint64_t repositoryGeneration_{};
  public:
+ void CreateBrowserControls();void LayoutBrowser(UINT dpi=0);void UpdateBrowserImages(UINT dpi=0);void UpdateNavigationBar();void NavigateFolder(const std::wstring&);void UpdateVisibleCheckStates();LRESULT HandleListNotification(LPARAM);
  void ContinueWithForeignLock(const std::wstring& path,const std::filesystem::path& localPath,const std::wstring& owner,bool openAfter);
- int Run(HINSTANCE); LRESULT WndProc(HWND,UINT,WPARAM,LPARAM); void Refresh(); void RefreshLocal(); void RefreshFiles(); void RefreshChanges(); void RefreshLocks(); void StartLocalWatcher(); void StopLocalWatcher(); void ShowSetup(); void HandleCommand(WORD); void DeleteSelectedFile(); void Background(std::function<void()>); Repository* Current(); const Repository* Current()const; void SetStatus(const std::wstring&); void Populate(); void UpdateFonts(UINT); void HandleSolidWorksEvent(const SolidWorksEvent&); void LockPath(const std::wstring&,bool=false); void ClosedPath(const std::wstring&); void ReleasePendingLocks(); void CheckForUpdates(bool manual);
+ int Run(HINSTANCE); LRESULT WndProc(HWND,UINT,WPARAM,LPARAM); void Refresh(); void RefreshLocal(); void RefreshLocks(); void StartLocalWatcher(); void StopLocalWatcher(); void ShowSetup(); void HandleCommand(WORD); void DeleteSelectedFile(); void Background(std::function<void()>); Repository* Current(); const Repository* Current()const; void SetStatus(const std::wstring&); void Populate(); void UpdateFonts(UINT); void HandleSolidWorksEvent(const SolidWorksEvent&); void LockPath(const std::wstring&,bool=false); void ClosedPath(const std::wstring&); void ReleasePendingLocks(); void CheckForUpdates(bool manual);
 };
 }
