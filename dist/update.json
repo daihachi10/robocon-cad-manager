@@ -1,7 +1,7 @@
 {
-  "version": "0.1.1",
-  "installerUrl": "https://github.com/daihachi10/robocon-cad-manager/releases/download/v0.1.1/RoboconCadManagerSetup-0.1.1.exe",
-  "sha256": "84640db11d60b6eef4319892ab0b52be0c11ccb573852bc381c4b7ce10c57a00",
-  "size": 2254280,
-  "notes": "高専ロボコンCAD管理アプリ 0.1.1 — アイコンとスタートメニュー登録を修正"
+  "version": "0.1.3",
+  "installerUrl": "https://github.com/daihachi10/robocon-cad-manager/releases/download/v0.1.3/RoboconCadManagerSetup-0.1.3.exe",
+  "sha256": "3dd61c3fe1e0e8b5382b055f950df415645e6fe6e66cf0c3431cb6ad04ed3285",
+  "size": 2254246,
+  "notes": "高専ロボコンCAD管理アプリ 0.1.3 — LFSロック設定の成功判定を修正"
 }
