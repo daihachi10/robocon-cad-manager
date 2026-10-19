@@ -2,6 +2,10 @@
 
 Windows 11 x64 用の軽量な Win32 ネイティブアプリです。共有用インストーラーはユーザー単位で導入し、インストール中にGit for WindowsをHTTPSで取得します。
 
+## 利用者向けマニュアル
+
+GitHubアカウントの作成からアプリの初回設定、リポジトリの複製、LFS設定、変更の送信までを説明した初心者向け手順は [docs/setup-manual-ja.md](docs/setup-manual-ja.md) を参照してください。
+
 ## ビルド
 
 Visual Studio の x64 Native Tools Command Prompt で実行します。
