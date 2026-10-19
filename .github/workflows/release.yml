@@ -18,9 +18,13 @@ jobs:
         shell: pwsh
         run: |
           $installer = Join-Path $env:RUNNER_TEMP 'innosetup.exe'
-          Invoke-WebRequest -Uri 'https://jrsoftware.org/download.php/is.exe' -OutFile $installer
+          Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-7.1.0-x64.exe' -OutFile $installer
           $installDir = Join-Path $env:RUNNER_TEMP 'InnoSetup'
-          Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$installDir" -Wait
+          $signature = Get-AuthenticodeSignature -FilePath $installer
+          if ($signature.Status -ne 'Valid') { throw 'Inno Setup signature validation failed.' }
+          $process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$installDir" -WindowStyle Hidden -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed: $($process.ExitCode)" }
+          if (-not (Test-Path "$installDir\ISCC.exe")) { throw 'ISCC.exe was not installed.' }
           "$installDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Package
         shell: pwsh
