@@ -77,8 +77,58 @@ void App::Populate(){
  for(const auto& file:cad_){auto path=RelativePath(*repository,file.path);auto found=changed.find(path);if(!MatchesFilter(path,filterMode_)){changed.erase(path);continue;}std::wstring state=found==changed.end()?L"変更なし":ChangeDescription(found->second->code);if(file.lfsPointer)state+=L" / 大容量ファイルの本体未取得";if(file.suspiciousName)state+=L" / 版名を見直してください";add(path,state,std::to_wstring(file.bytes/1024)+L" KB",checked(path),&file.path);changed.erase(path);}
  for(const auto& [path,change]:changed){if(!MatchesFilter(path,filterMode_))continue;std::error_code error;const auto local=std::filesystem::path(repository->folder)/std::filesystem::path(path);const bool exists=std::filesystem::is_regular_file(local,error);const auto bytes=exists?std::filesystem::file_size(local,error):0;add(path,ChangeDescription(change->code),exists&&!error?std::to_wstring(bytes/1024)+L" KB":L"-",checked(path),exists?&local:nullptr);}populating_=false;
 }
-void App::LockPath(const std::wstring& path,bool openAfter){if(!Current())return;opened_.insert(path);auto local=localFiles_.find(path);const auto localPath=local==localFiles_.end()?std::filesystem::path{}:local->second;auto known=locks_.find(path);if(locksKnown_&&known!=locks_.end()){if(known->second.ours){Populate();if(openAfter){std::wstring openError;if(!OpenFile(localPath,openError)){opened_.erase(path);MessageBoxW(window_,openError.c_str(),L"ファイルを開けません",MB_ICONERROR);ClosedPath(path);}}return;}if(openAfter){opened_.erase(path);const auto message=known->second.owner.empty()?L"このファイルは他の利用者が編集中です。":L"このファイルは "+known->second.owner+L" さんが編集中です。";MessageBoxW(window_,message.c_str(),L"ファイルを開けません",MB_ICONWARNING);}Populate();return;}Background([this,r=*Current(),path,openAfter,localPath]{std::wstring error;std::optional<LockInfo> lock;{std::lock_guard guard(lockWorkMutex_);lock=git_.Lock(r,path,error);}PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,path,openAfter,localPath,lock=std::move(lock),error]{if(lock){locks_[path]=*lock;locksKnown_=true;Populate();if(openAfter){std::wstring openError;if(!OpenFile(localPath,openError)){opened_.erase(path);MessageBoxW(window_,openError.c_str(),L"ファイルを開けません",MB_ICONERROR);ClosedPath(path);}}else if(!opened_.contains(path))ClosedPath(path);}else{if(openAfter)opened_.erase(path);SetStatus(error);if(openAfter)MessageBoxW(window_,error.c_str(),L"ロックできません",MB_ICONWARNING);Populate();}}});});}
+void App::ContinueWithForeignLock(const std::wstring& path,const std::filesystem::path& localPath,const std::wstring& owner,bool openAfter){
+ const auto message=(owner.empty()?std::wstring(L"他の利用者が編集中です。"):owner+L" さんが編集中です。")+
+  L"\n\n"+path+L"\n\nこのPCで開いて保存できます。同じファイルの変更が重ならないよう、編集者と確認してください。";
+ MessageBoxW(window_,message.c_str(),L"他の人が編集中です",MB_OK|MB_ICONWARNING);
+ std::wstring error;
+ if(!MakeCadWritable(localPath,error)){
+  if(openAfter)opened_.erase(path);
+  MessageBoxW(window_,error.c_str(),L"ファイルを編集できません",MB_ICONERROR);SetStatus(error);Populate();return;
+ }
+ if(openAfter&&!OpenFile(localPath,error)){
+  opened_.erase(path);MessageBoxW(window_,error.c_str(),L"ファイルを開けません",MB_ICONERROR);SetStatus(error);
+ }
+ Populate();
+}
+
+void App::LockPath(const std::wstring& path,bool openAfter){
+ if(!Current())return;
+ const bool alreadyOpen=!opened_.insert(path).second;
+ if(alreadyOpen&&!openAfter)return; // Suppress duplicate SolidWorks open/context notifications.
+ const auto localPath=std::filesystem::path(Current()->folder)/std::filesystem::path(path);
+ auto known=locks_.find(path);
+ if(locksKnown_&&known!=locks_.end()){
+  if(!known->second.ours){ContinueWithForeignLock(path,localPath,known->second.owner,openAfter);return;}
+  Populate();
+  if(openAfter){std::wstring error;if(!OpenFile(localPath,error)){opened_.erase(path);MessageBoxW(window_,error.c_str(),L"ファイルを開けません",MB_ICONERROR);ClosedPath(path);}}
+  return;
+ }
+ Background([this,r=*Current(),path,openAfter,localPath]{
+  std::wstring error;std::optional<LockInfo> lock,foreign;
+  {std::lock_guard guard(lockWorkMutex_);
+   lock=git_.Lock(r,path,error);
+   if(!lock){ // Also handle another user taking the lock after the last refresh.
+    std::wstring listError;const auto current=git_.ListLocks(r,listError);
+    if(listError.empty())for(const auto& item:current)if(item.path==path&&!item.ours){foreign=item;break;}
+   }
+  }
+  PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,path,openAfter,localPath,lock=std::move(lock),foreign=std::move(foreign),error]{
+   if(lock){
+    locks_[path]=*lock;locksKnown_=true;Populate();
+    if(openAfter){std::wstring openError;if(!OpenFile(localPath,openError)){opened_.erase(path);MessageBoxW(window_,openError.c_str(),L"ファイルを開けません",MB_ICONERROR);ClosedPath(path);}}
+    else if(!opened_.contains(path))ClosedPath(path);
+   }else if(foreign){
+    locks_[path]=*foreign;locksKnown_=true;
+    if(openAfter||opened_.contains(path))ContinueWithForeignLock(path,localPath,foreign->owner,openAfter);
+   }else{
+    opened_.erase(path);SetStatus(error);
+    MessageBoxW(window_,error.c_str(),L"ロックできません",MB_ICONWARNING);Populate();
+   }
+  }});
+ });
+}
 void App::ClosedPath(const std::wstring& path){opened_.erase(path);if(!Current())return;auto found=locks_.find(path);if(found==locks_.end()||!found->second.ours){Populate();return;}Background([this,r=*Current(),path,lock=found->second]{if(git_.IsDirty(r,path)){PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,path]{pendingUnlock_.insert(path);SetStatus(L"変更済みのため、送信完了までロックを保持します。 "+path);Populate();}});return;}std::wstring error;bool ok;{std::lock_guard guard(lockWorkMutex_);ok=git_.Unlock(r,lock,error);}PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,path,ok,error]{if(ok){locks_.erase(path);pendingUnlock_.erase(path);}else SetStatus(error);Populate();}});});}
 void App::ReleasePendingLocks(){auto* repository=Current();if(!repository)return;std::set<std::wstring> actuallyOpen;for(const auto& absolute:solidworks_.OpenDocuments()){std::error_code error;auto relative=std::filesystem::relative(absolute,repository->folder,error);if(!error){auto path=relative.generic_wstring();if(IsLockableCad(path))actuallyOpen.insert(std::move(path));}}std::vector<std::wstring> release;for(const auto&[path,lock]:locks_){if(!lock.ours)continue;if(actuallyOpen.contains(path)){opened_.insert(path);continue;}opened_.erase(path);release.push_back(path);}for(const auto& path:release)ClosedPath(path);}
-void App::HandleSolidWorksEvent(const SolidWorksEvent& event){auto* repo=Current();if(!repo)return;std::error_code error;auto relative=std::filesystem::relative(event.path,repo->folder,error);if(error)return;auto path=relative.generic_wstring();if(IsTemporaryFile(path)||!IsLockableCad(path))return;switch(event.kind){case SolidWorksEventKind::Opened:case SolidWorksEventKind::BeginContextEdit:opened_.insert(path);LockPath(path);break;case SolidWorksEventKind::Closed:case SolidWorksEventKind::EndContextEdit:ClosedPath(path);break;}}
+void App::HandleSolidWorksEvent(const SolidWorksEvent& event){auto* repo=Current();if(!repo)return;std::error_code error;auto relative=std::filesystem::relative(event.path,repo->folder,error);if(error)return;auto path=relative.generic_wstring();if(IsTemporaryFile(path)||!IsLockableCad(path))return;switch(event.kind){case SolidWorksEventKind::Opened:case SolidWorksEventKind::BeginContextEdit:LockPath(path);break;case SolidWorksEventKind::Closed:case SolidWorksEventKind::EndContextEdit:ClosedPath(path);break;}}
 }

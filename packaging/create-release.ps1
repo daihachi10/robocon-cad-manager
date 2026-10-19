@@ -32,8 +32,19 @@ $iscc = if ($isccCommand) { $isccCommand.Source } else {
 }
 if (-not $iscc) { throw 'Inno Setup (ISCC.exe) が見つかりません。' }
 [IO.Directory]::CreateDirectory($dist) | Out-Null
+$gitInfo = Get-Content (Join-Path $PSScriptRoot 'git-version.json') -Raw | ConvertFrom-Json
+$dependencyDir = Join-Path $PSScriptRoot 'dependencies'
+[IO.Directory]::CreateDirectory($dependencyDir) | Out-Null
+$gitSetup = Join-Path $dependencyDir 'Git-for-Windows.exe'
+if (-not (Test-Path -LiteralPath $gitSetup)) {
+  Write-Host '同梱するGit・Git LFSを公式配布元から取得しています。'
+  Invoke-WebRequest -Uri $gitInfo.url -OutFile $gitSetup
+}
+if ((Get-FileHash -LiteralPath $gitSetup -Algorithm SHA256).Hash.ToLowerInvariant() -ne $gitInfo.sha256) {
+  throw '同梱するGit・Git LFSのSHA-256が一致しません。配布物の生成を中止しました。'
+}
 $env:APP_VERSION = $Version
-& $iscc "/DAppBinary=$binary" (Join-Path $root 'installer\RoboconCadManager.iss')
+& $iscc "/DAppBinary=$binary" "/DGitSetupBinary=$gitSetup" (Join-Path $root 'installer\RoboconCadManager.iss')
 if ($LASTEXITCODE -ne 0) { throw 'インストーラーの生成に失敗しました。' }
 $setup = Join-Path $dist 'RoboconCadManagerSetup.exe'
 $manifest = [ordered]@{
@@ -41,7 +52,7 @@ $manifest = [ordered]@{
   installerUrl = 'https://github.com/daihachi10/robocon-cad-manager/releases/latest/download/RoboconCadManagerSetup.exe'
   sha256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
   size = (Get-Item -LiteralPath $setup).Length
-  notes = "高専ロボコンCAD管理アプリ $Version — origin/mainを送信対象に追加"
+  notes = "高専ロボコンCAD管理アプリ $Version — Git LFS同梱・他の人が編集中でも警告後に開いて保存可能"
 }
 [IO.File]::WriteAllText((Join-Path $dist 'update.json'), ($manifest | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 Write-Host "生成: $setup"

@@ -2,5 +2,8 @@
   "version": "2.56.0.2",
   "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.2/Git-2.56.0.2-64-bit.exe",
   "sha256": "52188f917b378f00c70ec136bcf090005f30d44fbc4eba0bce759cc6592d60f6",
-  "licenseUrl": "https://github.com/git-for-windows/git/blob/main/LICENSE.txt"
+  "licenseUrl": "https://github.com/git-for-windows/git/blob/main/LICENSE.txt",
+  "lfsIncluded": true,
+  "lfsLicenseUrl": "https://github.com/git-lfs/git-lfs/blob/main/LICENSE.md",
+  "distribution": "Git for Windows公式インストーラーをGit LFSコンポーネント付きで同梱"
 }

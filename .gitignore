@@ -5,3 +5,4 @@ out/
 
 build-release/
 .vs/
+packaging/dependencies/
