@@ -12,38 +12,59 @@ constexpr wchar_t kManifestUrl[] = L"https://github.com/daihachi10/robocon-cad-m
 bool ParseHttpsUrl(const std::wstring& value, URL_COMPONENTS& components, std::wstring& error) {
   components = {};
   components.dwStructSize = sizeof(components);
-  if (!WinHttpCrackUrl(value.c_str(), 0, 0, &components) || components.nScheme != INTERNET_SCHEME_HTTPS) {
+  components.dwHostNameLength = static_cast<DWORD>(-1);
+  components.dwUrlPathLength = static_cast<DWORD>(-1);
+  components.dwExtraInfoLength = static_cast<DWORD>(-1);
+  if (!WinHttpCrackUrl(value.c_str(), 0, 0, &components)) {
+    const auto code = GetLastError();
+    error = L"更新先URLを解析できません。（Windowsエラー " + std::to_wstring(code) + L"）\n" + Trim(LastError(code));
+    return false;
+  }
+  if (components.nScheme != INTERNET_SCHEME_HTTPS) {
     error = L"更新先URLがHTTPSではありません。";
     return false;
   }
   return true;
 }
 
+std::wstring HttpError(const std::wstring& operation, DWORD code = GetLastError()) {
+  return operation + L"に失敗しました。（Windowsエラー " + std::to_wstring(code) + L"）\n" + Trim(LastError(code));
+}
+
 bool HttpGet(const std::wstring& url, std::vector<BYTE>& body, std::wstring& error) {
+  body.clear();
   URL_COMPONENTS parts{};
   if (!ParseHttpsUrl(url, parts, error)) return false;
   std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
   std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
   if (parts.dwExtraInfoLength) path.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
+  if (host.empty()) { error = L"更新先URLにホスト名がありません。"; return false; }
+  if (path.empty()) path = L"/";
   HINTERNET session = WinHttpOpen(L"RoboconCadManager/0.1", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, nullptr, nullptr, 0);
-  if (!session) { error = L"更新確認の通信を開始できません。"; return false; }
+  if (!session) { error = HttpError(L"更新確認の通信開始"); return false; }
   WinHttpSetTimeouts(session, 5000, 5000, 10000, 10000);
   HINTERNET connection = WinHttpConnect(session, host.c_str(), parts.nPort, 0);
   HINTERNET request = connection ? WinHttpOpenRequest(connection, L"GET", path.c_str(), nullptr,
       WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : nullptr;
   bool result = false;
-  if (request && WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0) && WinHttpReceiveResponse(request, nullptr)) {
+  if (!connection) error = HttpError(L"更新サーバーへの接続");
+  else if (!request) error = HttpError(L"更新要求の作成");
+  else if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, nullptr, 0, 0, 0)) error = HttpError(L"更新要求の送信");
+  else if (!WinHttpReceiveResponse(request, nullptr)) error = HttpError(L"更新サーバーからの応答受信");
+  else {
     DWORD status{}, statusSize = sizeof(status);
-    WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX);
-    if (status >= 200 && status < 300) {
+    if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX)) {
+      error = HttpError(L"更新サーバーの応答確認");
+    } else if (status >= 200 && status < 300) {
       for (;;) {
         DWORD available{};
-        if (!WinHttpQueryDataAvailable(request, &available)) break;
+        if (!WinHttpQueryDataAvailable(request, &available)) { error = HttpError(L"更新データの確認"); break; }
         if (!available) { result = true; break; }
         const auto old = body.size(); body.resize(old + available);
         DWORD read{};
-        if (!WinHttpReadData(request, body.data() + old, available, &read)) { body.resize(old); break; }
+        if (!WinHttpReadData(request, body.data() + old, available, &read)) { body.resize(old); error = HttpError(L"更新データの受信"); break; }
         body.resize(old + read);
+        if (!read) { result = true; break; }
       }
     } else error = L"更新サーバーがHTTP "+std::to_wstring(status)+L"を返しました。";
   }
