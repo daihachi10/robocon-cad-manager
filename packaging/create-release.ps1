@@ -41,7 +41,7 @@ $manifest = [ordered]@{
   installerUrl = 'https://github.com/daihachi10/robocon-cad-manager/releases/latest/download/RoboconCadManagerSetup.exe'
   sha256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
   size = (Get-Item -LiteralPath $setup).Length
-  notes = "高専ロボコンCAD管理アプリ $Version — インストーラー名を固定"
+  notes = "高専ロボコンCAD管理アプリ $Version — origin/mainを送信対象に追加"
 }
 [IO.File]::WriteAllText((Join-Path $dist 'update.json'), ($manifest | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
 Write-Host "生成: $setup"

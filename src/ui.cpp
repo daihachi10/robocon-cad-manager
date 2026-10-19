@@ -59,7 +59,7 @@ INT_PTR CALLBACK SetupProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
     }
     CreateWindowW(L"STATIC", L"認証はGitの認証管理機能を使用します。アプリ用トークンは不要です。",
                   WS_CHILD | WS_VISIBLE, 12, y, 440, 18, window, nullptr, nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"変更はmainへ直接送信します。",
+    CreateWindowW(L"STATIC", L"変更はmainまたはorigin/mainへ直接送信します。",
                   WS_CHILD | WS_VISIBLE, 12, y + 22, 440, 18, window, nullptr, nullptr, nullptr);
     CreateWindowW(L"BUTTON", L"LFSロック設定を追加", WS_CHILD | WS_VISIBLE,
                   12, y + 52, 170, 28, window, reinterpret_cast<HMENU>(201), nullptr, nullptr);

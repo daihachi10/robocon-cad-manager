@@ -50,7 +50,7 @@ $env:APP_VERSION = "0.1.0"
 {"version":1,"mainBranch":"main","leaders":["github-id"],"backupGuide":"月1回、GitHub以外の保存先へバックアップする"}
 ```
 
-本アプリは作業場所を `main` に限定し、変更を `main` へ直接送信します。現在の作業場所が `main` 以外の場合は送信せず、日本語で切り替え手順を表示します。
+本アプリは作業場所を `main` または `origin/main` として扱い、変更をGitHubの `main` へ直接送信します。その他の作業場所の場合は送信せず、日本語で切り替え手順を表示します。
 
 ## 未実装の境界
 
