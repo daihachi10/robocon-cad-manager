@@ -11,10 +11,11 @@ class FileDropTarget final : public IDropTarget {
   ULONG STDMETHODCALLTYPE Release() override { const auto count=--refs_;if(!count)delete this;return count; }
   HRESULT STDMETHODCALLTYPE DragEnter(IDataObject*,DWORD,POINTL,DWORD*) override;
   HRESULT STDMETHODCALLTYPE DragOver(DWORD,POINTL,DWORD*) override;
-  HRESULT STDMETHODCALLTYPE DragLeave() override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE DragLeave() override;
   HRESULT STDMETHODCALLTYPE Drop(IDataObject*,DWORD,POINTL,DWORD*) override;
  private:
-  ULONG refs_{1}; HWND window_{}; EffectCallback effect_; DropCallback drop_;
+  ULONG refs_{1}; HWND window_{}; EffectCallback effect_; DropCallback drop_; bool acceptsFiles_{};
+  void ClearHighlight();
 };
 std::vector<std::filesystem::path> ExtractDropFiles(IDataObject* object);
 bool SetClipboardFiles(HWND owner,const std::vector<std::filesystem::path>& files,std::wstring& error);

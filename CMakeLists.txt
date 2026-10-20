@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(RoboconCadManager VERSION 0.1.11 LANGUAGES CXX RC)
+project(RoboconCadManager VERSION 0.1.12 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +28,15 @@ target_link_libraries(FolderBrowserTest PRIVATE comctl32 shell32 shlwapi ole32 o
 if(MSVC)
   target_compile_options(FolderBrowserTest PRIVATE /W4 /permissive- /utf-8)
   set_property(TARGET FolderBrowserTest PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+add_executable(IntegrationFixTest EXCLUDE_FROM_ALL tests/integration_fix_test.cpp ${RC_APP_SOURCES})
+target_include_directories(IntegrationFixTest PRIVATE src)
+target_compile_definitions(IntegrationFixTest PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(IntegrationFixTest PRIVATE comctl32 shell32 shlwapi ole32 oleaut32 winhttp bcrypt)
+if(MSVC)
+  target_compile_options(IntegrationFixTest PRIVATE /W4 /permissive- /utf-8)
+  set_property(TARGET IntegrationFixTest PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 add_executable(RoboconCadManagerMinimal WIN32 src/minimal_main.cpp)

@@ -14,6 +14,16 @@ jobs:
         run: cmake -S . -B build-release -G "Visual Studio 17 2022" -A x64
       - name: Build
         run: cmake --build build-release --config Release
+      - name: Native regression tests
+        shell: pwsh
+        run: |
+          cmake --build build-release --config Release --target IntegrationFixTest FolderBrowserTest
+          if ($LASTEXITCODE -ne 0) { throw 'Native test build failed.' }
+          $git = (Get-Command git).Source
+          & .\build-release\Release\IntegrationFixTest.exe $git (Join-Path $env:RUNNER_TEMP 'cad-integration-test')
+          if ($LASTEXITCODE -ne 0) { throw 'Open state / drag-drop regression failed.' }
+          & .\build-release\Release\FolderBrowserTest.exe $git (Join-Path $env:RUNNER_TEMP 'cad-folder-test')
+          if ($LASTEXITCODE -ne 0) { throw 'Folder browser regression failed.' }
       - name: Install Inno Setup
         shell: pwsh
         run: |

@@ -125,7 +125,7 @@ void App::Populate(){
   if(!entry.directory){
    if(!locksKnown_)editing=L"ロック状態を確認できません";
    else if(locked==locks_.end())editing=L"-";
-   else if(locked->second.ours)editing=L"自分が編集中";
+   else if(locked->second.ours)editing=opened_.contains(entry.path)?L"自分が編集中":(pendingUnlock_.contains(entry.path)?L"自分のロック（送信待ち）":L"自分のロック（閉じています）");
    else editing=locked->second.owner.empty()?L"他の利用者が編集中":L"["+locked->second.owner+L"] が編集中";
    const auto commit=latestCommits_.find(entry.path);last=commit==latestCommits_.end()?L"未保存":commit->second.author+L" ("+commit->second.message+L")";
    size=entry.local?std::to_wstring(entry.bytes/1024)+L" KB":L"-";

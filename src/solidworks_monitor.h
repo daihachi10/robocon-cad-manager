@@ -11,11 +11,18 @@ class SolidWorksMonitor {
   void Start(HWND notifyWindow, UINT attachMessage, Callback callback);
   void Stop();
   void Attach();
-  std::vector<std::wstring> OpenDocuments() const;
+  // false means COM could not confirm the state; never treat it as an empty list.
+  bool OpenDocuments(std::vector<std::wstring>& paths);
  private:
+  friend struct SolidWorksMonitorTest;
+  using Lookup = HRESULT (*)(IDispatch**);
+  Lookup lookup_{};
   struct Subscription;
   HWND notifyWindow_{}; UINT attachMessage_{}; HWINEVENTHOOK eventHook_{}; Callback callback_;
   IDispatch* app_{}; std::vector<Subscription*> subscriptions_;
+  std::set<HWND> windows_;
+  bool RefreshConnection();
+  void Disconnect();
   void Subscribe(IDispatch* object, IDispatch* document = nullptr);
   void EnumerateDocuments();
   void Dispatch(Subscription* subscription, DISPID dispid, DISPPARAMS* params);
