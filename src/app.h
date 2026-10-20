@@ -8,7 +8,7 @@
 namespace rc {
 constexpr UINT WM_APP_DONE=WM_APP+41, WM_APP_SW_ATTACH=WM_APP+42, WM_APP_UPDATE=WM_APP+44;
 constexpr WORD kBrowseBack=114,kBrowseForward=115,kBrowseUp=116,kOpenExplorer=117;
-constexpr WORD kContextNewPart=400,kContextNewAssembly=401,kContextNewDrawing=402,kContextNewFolder=403,kContextPaste=404,kContextOpen=405,kContextRename=406,kContextDelete=407,kContextCopy=408,kContextHistory=409,kContextRestore=410;
+constexpr WORD kContextNewPart=400,kContextNewAssembly=401,kContextNewDrawing=402,kContextNewFolder=403,kContextPaste=404,kContextOpen=405,kContextRename=406,kContextDelete=407,kContextCopy=408,kContextHistory=409,kContextRestore=410,kContextDeleteFolder=411;
 struct UiTask { std::function<void()> action; };
 class App {
  friend struct AppBrowserTest;
@@ -21,7 +21,7 @@ class App {
  public:
  void CreateBrowserControls();void LayoutBrowser(UINT dpi=0);void UpdateBrowserImages(UINT dpi=0);void UpdateNavigationBar();void NavigateFolder(const std::wstring&);void UpdateVisibleCheckStates();LRESULT HandleListNotification(LPARAM);
  void ContinueWithForeignLock(const std::wstring& path,const std::filesystem::path& localPath,const std::wstring& owner,bool openAfter);
- void ShowListContextMenu(POINT screen); void CopySelectedFile(); void PasteFromClipboard(const std::vector<std::filesystem::path>& files); void PasteFilesToFolder(const std::vector<std::filesystem::path>&,const std::wstring&); void HandleDroppedFiles(IDataObject*,POINTL); DWORD DropEffect(POINTL) const; void CreateNewItem(int kind); void RenameSelected(); void ShowHistory(const std::wstring&,bool);
+ void ShowListContextMenu(POINT screen); void CopySelectedFile(); void PasteFromClipboard(const std::vector<std::filesystem::path>& files); void PasteFilesToFolder(const std::vector<std::filesystem::path>&,const std::wstring&); void HandleDroppedFiles(IDataObject*,POINTL); DWORD DropEffect(POINTL) const; void CreateNewItem(int kind); void RenameSelected(); void DeleteSelectedFolder(); void ShowHistory(const std::wstring&,bool);
  int Run(HINSTANCE); LRESULT WndProc(HWND,UINT,WPARAM,LPARAM); void Refresh(); void RefreshLocal(); void RefreshLocks(); void StartLocalWatcher(); void StopLocalWatcher(); void ShowSetup(); void HandleCommand(WORD); void DeleteSelectedFile(); void Background(std::function<void()>); Repository* Current(); const Repository* Current()const; void SetStatus(const std::wstring&); void Populate(); void UpdateFonts(UINT); void HandleSolidWorksEvent(const SolidWorksEvent&); void LockPath(const std::wstring&,bool=false); void ClosedPath(const std::wstring&); void ReleasePendingLocks(); void CheckForUpdates(bool manual);
 };
 }
