@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shlwapi.h>
 #include <ole2.h>
 #include <ocidl.h>

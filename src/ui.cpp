@@ -35,6 +35,8 @@ struct PromptState {
   HFONT font{};
 };
 
+struct HistoryState { const std::vector<GitRevision>* revisions{}; bool allowRestore{}; std::optional<size_t> selected; HFONT font{}; HWND list{}; };
+
 INT_PTR CALLBACK SetupProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
   auto* state = reinterpret_cast<SetupState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
   if (message == WM_INITDIALOG) {
@@ -119,12 +121,35 @@ INT_PTR CALLBACK PromptProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
   return FALSE;
 }
 
-DLGTEMPLATE* MakeTemplate(short height) {
+INT_PTR CALLBACK HistoryProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
+  auto* state = reinterpret_cast<HistoryState*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+  if (message == WM_INITDIALOG) {
+    state = reinterpret_cast<HistoryState*>(lParam); SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
+    SetWindowTextW(window, state->allowRestore ? L"以前の状態に戻す" : L"過去の変更履歴");
+    state->list = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"", WS_CHILD|WS_VISIBLE|WS_TABSTOP|LVS_REPORT|LVS_SINGLESEL|LVS_SHOWSELALWAYS, 12, 12, 660, 210, window, reinterpret_cast<HMENU>(302), nullptr, nullptr);
+    ListView_SetExtendedListViewStyle(state->list, LVS_EX_FULLROWSELECT|LVS_EX_DOUBLEBUFFER);
+    const wchar_t* headings[] = {L"コミットメッセージ", L"日付", L"変更したユーザー"}; const int widths[] = {330, 140, 180};
+    for (int i=0;i<3;++i) { LVCOLUMNW column{}; column.mask=LVCF_TEXT|LVCF_WIDTH; column.pszText=const_cast<LPWSTR>(headings[i]); column.cx=widths[i]; ListView_InsertColumn(state->list,i,&column); }
+    for (size_t i=0;i<state->revisions->size();++i) { const auto& revision=(*state->revisions)[i]; LVITEMW item{}; item.mask=LVIF_TEXT|LVIF_PARAM; item.iItem=static_cast<int>(i); item.pszText=const_cast<LPWSTR>(revision.message.c_str()); item.lParam=static_cast<LPARAM>(i); ListView_InsertItem(state->list,&item); ListView_SetItemText(state->list,static_cast<int>(i),1,const_cast<LPWSTR>(revision.date.c_str())); ListView_SetItemText(state->list,static_cast<int>(i),2,const_cast<LPWSTR>(revision.author.c_str())); }
+    if (state->revisions->empty()) CreateWindowW(L"STATIC", L"このファイルの履歴はありません。", WS_CHILD|WS_VISIBLE, 18, 32, 400, 24, window, nullptr, nullptr, nullptr);
+    if (state->allowRestore) CreateWindowW(L"BUTTON", L"この状態に戻す", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_DEFPUSHBUTTON, 470, 238, 105, 28, window, reinterpret_cast<HMENU>(301), nullptr, nullptr);
+    CreateWindowW(L"BUTTON", L"閉じる", WS_CHILD|WS_VISIBLE|WS_TABSTOP, 585, 238, 85, 28, window, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+    state->font=CreateJapaneseFont(window); ApplyJapaneseFont(window,state->font); return TRUE;
+  }
+  if (message==WM_COMMAND && (LOWORD(wParam)==IDCANCEL || LOWORD(wParam)==301)) {
+    if (LOWORD(wParam)==301 && state->allowRestore && state->list) { const int row=ListView_GetNextItem(state->list,-1,LVNI_SELECTED); if(row>=0 && row<static_cast<int>(state->revisions->size())) state->selected=static_cast<size_t>(row); else { MessageBoxW(window,L"戻す履歴を選択してください。",L"履歴を選択してください",MB_ICONINFORMATION); return TRUE; } }
+    EndDialog(window,0); return TRUE;
+  }
+  if (message==WM_DESTROY && state && state->font) { DeleteObject(state->font); state->font=nullptr; }
+  return FALSE;
+}
+
+DLGTEMPLATE* MakeTemplateSize(short width,short height) {
   auto* templateData = static_cast<DLGTEMPLATE*>(LocalAlloc(LPTR, 128));
   templateData->style = WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME;
   templateData->x = 10;
   templateData->y = 10;
-  templateData->cx = 470;
+  templateData->cx = width;
   templateData->cy = height;
   return templateData;
 }
@@ -133,7 +158,7 @@ DLGTEMPLATE* MakeTemplate(short height) {
 
 bool ShowSetupDialog(HWND owner, SetupFields& fields) {
   SetupState state{&fields};
-  auto* templateData = MakeTemplate(370);
+  auto* templateData = MakeTemplateSize(470, 370);
   const auto result = DialogBoxIndirectParamW(GetModuleHandleW(nullptr), templateData, owner, SetupProc, reinterpret_cast<LPARAM>(&state));
   LocalFree(templateData);
   return result != -1 && state.accepted;
@@ -142,11 +167,15 @@ bool ShowSetupDialog(HWND owner, SetupFields& fields) {
 std::optional<std::wstring> Prompt(HWND owner, const std::wstring& caption, const std::wstring& label, const std::wstring& initial) {
   std::wstring value = initial;
   PromptState state{&value, caption, label};
-  auto* templateData = MakeTemplate(112);
+  auto* templateData = MakeTemplateSize(470, 112);
   const auto result = DialogBoxIndirectParamW(GetModuleHandleW(nullptr), templateData, owner, PromptProc, reinterpret_cast<LPARAM>(&state));
   LocalFree(templateData);
   if (result == -1 || value.empty()) return {};
   return value;
+}
+
+std::optional<size_t> ShowHistoryDialog(HWND owner,const std::vector<GitRevision>& revisions,bool allowRestore) {
+  HistoryState state{&revisions,allowRestore}; auto* templateData=MakeTemplateSize(700,285); DialogBoxIndirectParamW(GetModuleHandleW(nullptr),templateData,owner,HistoryProc,reinterpret_cast<LPARAM>(&state)); LocalFree(templateData); return state.selected;
 }
 
 }

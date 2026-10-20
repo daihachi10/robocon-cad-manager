@@ -66,6 +66,7 @@ void App::UpdateVisibleCheckStates(){
 
 LRESULT App::HandleListNotification(LPARAM parameter){
  const auto* notification=reinterpret_cast<NMHDR*>(parameter);if(notification->hwndFrom!=list_)return 0;
+ if(notification->code==NM_RCLICK){POINT p;GetCursorPos(&p);ShowListContextMenu(p);return 0;}
  if(notification->code==NM_DBLCLK){if(reinterpret_cast<NMITEMACTIVATE*>(parameter)->iItem>=0)HandleCommand(kOpen);return 0;}
  if(notification->code==LVN_KEYDOWN){
   const auto key=reinterpret_cast<NMLVKEYDOWN*>(parameter)->wVKey;

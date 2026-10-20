@@ -38,6 +38,7 @@ LRESULT App::WndProc(HWND h,UINT msg,WPARAM w,LPARAM l){
  switch(msg){
  case WM_CREATE:{
   CreateBrowserControls();
+  dropTarget_=new FileDropTarget(list_,[this](POINTL p){return DropEffect(p);},[this](IDataObject* o,POINTL p){HandleDroppedFiles(o,p);});RegisterDragDrop(list_,dropTarget_);
   std::wstring error;config_.Load(error);if(!error.empty())MessageBoxW(window_,error.c_str(),L"設定",MB_ICONWARNING);solidworks_.Start(window_,WM_APP_SW_ATTACH,[this](const rc::SolidWorksEvent& event){HandleSolidWorksEvent(event);});if(!config_.Repositories().empty()){selected_=0;StartLocalWatcher();this->Refresh();}else Populate();PostMessageW(window_,WM_APP_UPDATE,0,0);return 0;
  }
  case WM_SIZE:LayoutBrowser();return 0;
@@ -50,7 +51,7 @@ LRESULT App::WndProc(HWND h,UINT msg,WPARAM w,LPARAM l){
  case WM_APP_UPDATE:CheckForUpdates(false);return 0;
  case WM_NOTIFY:return HandleListNotification(l);
  case WM_DPICHANGED:{auto rect=(RECT*)l;SetWindowPos(window_,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);UpdateFonts(GetDpiForWindow(window_));return 0;}
- case WM_DESTROY:StopLocalWatcher();solidworks_.Stop();if(images_)ImageList_Destroy(images_);if(font_)DeleteObject(font_);if(strikeFont_)DeleteObject(strikeFont_);PostQuitMessage(0);return 0;
+ case WM_DESTROY:StopLocalWatcher();solidworks_.Stop();if(dropTarget_){RevokeDragDrop(list_);dropTarget_->Release();dropTarget_=nullptr;}if(images_)ImageList_Destroy(images_);if(font_)DeleteObject(font_);if(strikeFont_)DeleteObject(strikeFont_);PostQuitMessage(0);return 0;
  }return DefWindowProcW(h,msg,w,l);
 }
 Repository* App::Current(){return selected_>=0&&selected_<(int)config_.Repositories().size()?const_cast<Repository*>(&config_.Repositories()[selected_]):nullptr;}

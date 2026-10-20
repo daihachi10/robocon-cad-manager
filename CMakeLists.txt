@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(RoboconCadManager VERSION 0.1.10 LANGUAGES CXX RC)
+project(RoboconCadManager VERSION 0.1.11 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 configure_file(src/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
 set(RC_APP_SOURCES
   src/app.cpp src/app_browser.cpp src/file_browser.cpp src/config.cpp src/process.cpp src/git.cpp
-  src/json.cpp src/cad.cpp src/ui.cpp src/app_actions.cpp src/solidworks_monitor.cpp src/update.cpp)
+  src/json.cpp src/cad.cpp src/ui.cpp src/app_actions.cpp src/solidworks_monitor.cpp src/update.cpp src/file_transfer.cpp)
 add_executable(RoboconCadManager WIN32 "${CMAKE_CURRENT_BINARY_DIR}/app.rc" src/main.cpp ${RC_APP_SOURCES})
 target_include_directories(RoboconCadManager PRIVATE src)
 target_compile_definitions(RoboconCadManager PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX RC_VERSION=L\"${PROJECT_VERSION}\")
