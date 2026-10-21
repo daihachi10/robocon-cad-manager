@@ -28,7 +28,7 @@ DisableProgramGroupPage=yes
 AllowNoIcons=no
 SetupIconFile=..\assets\app.ico
 UninstallDisplayIcon={app}\RoboconCadManager.exe,0
-CloseApplications=yes
+CloseApplications=force
 
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
