@@ -21,4 +21,5 @@ struct UpdateResult {
 std::wstring CurrentVersion();
 UpdateResult CheckForUpdate();
 bool DownloadAndVerifyUpdate(const UpdateInfo& info, std::filesystem::path& installer, std::wstring& error);
+bool DownloadGitIgnore(const std::wstring& repositoryUrl, const std::filesystem::path& destination, std::wstring& error);
 }

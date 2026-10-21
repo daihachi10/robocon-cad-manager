@@ -61,7 +61,7 @@ void App::ShowSetup(){
 }
 
 void App::HandleCommand(WORD id){
- constexpr WORD setup=100,refresh=101,clone=102,pull=104,commit=105,open=106,more=107,refreshLocal=108,lfsSetup=110,locks=111,unlock=112,update=113;
+ constexpr WORD setup=100,refresh=101,clone=102,pull=104,commit=105,open=106,more=107,refreshLocal=108,lfsSetup=110,locks=111,unlock=112,update=113,gitignore=118;
  auto* repository=Current();
  if(id==kBrowseBack||id==kBrowseForward||id==kBrowseUp){
   if(!repository)return;
@@ -87,9 +87,10 @@ void App::HandleCommand(WORD id){
  if(id==kContextRename){RenameSelected();return;}
  if(id==kContextHistory||id==kContextRestore){int s=ListView_GetNextItem(list_,-1,LVNI_SELECTED);if(s>=0&&s<(int)listPaths_.size()&&!browserItems_[s].directory)ShowHistory(listPaths_[s],id==kContextRestore);return;}
  if(id==setup){ShowSetup();return;}
- if(id==more){HMENU menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,setup,L"設定");if(repository&&repository->lfsLockEnabled){AppendMenuW(menu,MF_STRING,lfsSetup,L"LFSロック設定");AppendMenuW(menu,MF_STRING,locks,L"ロック状態を更新");AppendMenuW(menu,MF_STRING,unlock,L"選択ファイルのロック解除");}AppendMenuW(menu,MF_STRING,update,L"更新を確認");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,clone,L"複製");AppendMenuW(menu,MF_STRING,pull,L"最新状態だけ取得");AppendMenuW(menu,MF_STRING,refreshLocal,L"一覧だけ更新");AppendMenuW(menu,MF_STRING,open,L"ファイルを開く");POINT point;GetCursorPos(&point);TrackPopupMenu(menu,TPM_LEFTALIGN|TPM_TOPALIGN,point.x,point.y,0,window_,nullptr);DestroyMenu(menu);return;}
+ if(id==more){HMENU menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,setup,L"設定");AppendMenuW(menu,MF_STRING,gitignore,L".gitignore を追加");if(repository&&repository->lfsLockEnabled){AppendMenuW(menu,MF_STRING,lfsSetup,L"LFSロック設定");AppendMenuW(menu,MF_STRING,locks,L"ロック状態を更新");AppendMenuW(menu,MF_STRING,unlock,L"選択ファイルのロック解除");}AppendMenuW(menu,MF_STRING,update,L"更新を確認");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,clone,L"複製");AppendMenuW(menu,MF_STRING,pull,L"最新状態だけ取得");AppendMenuW(menu,MF_STRING,refreshLocal,L"一覧だけ更新");AppendMenuW(menu,MF_STRING,open,L"ファイルを開く");POINT point;GetCursorPos(&point);TrackPopupMenu(menu,TPM_LEFTALIGN|TPM_TOPALIGN,point.x,point.y,0,window_,nullptr);DestroyMenu(menu);return;}
  if(id==update){CheckForUpdates(true);return;}
  if(!repository){MessageBoxW(window_,L"先にリポジトリを設定してください。",L"操作できません",MB_ICONINFORMATION);return;}
+ if(id==gitignore){const auto destination=std::filesystem::path(repository->folder)/L".gitignore";if(!std::filesystem::is_directory(repository->folder)){MessageBoxW(window_,L"先に「その他」→「複製」で作業フォルダーを作成してください。",L".gitignore を追加できません",MB_ICONINFORMATION);return;}if(std::filesystem::exists(destination)&&MessageBoxW(window_,L".gitignore は既にあります。GitHubのmainブランチの内容で上書きしますか？",L".gitignore を追加",MB_YESNO|MB_ICONWARNING)!=IDYES)return;SetStatus(L"GitHubから .gitignore を取得しています。");Background([this,r=*repository,destination]{std::wstring error;const bool ok=DownloadGitIgnore(r.remote,destination,error);PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(new UiTask{[this,ok,error]{if(!ok){SetStatus(error);MessageBoxW(window_,error.c_str(),L".gitignore を追加できません",MB_ICONERROR);return;}SetStatus(L".gitignore を追加しました。保存して送信すると共有されます。");RefreshLocal();MessageBoxW(window_,L"GitHubから .gitignore を取得して作業フォルダーへ追加しました。\n\n保存して送信すると共有されます。",L".gitignore を追加しました",MB_ICONINFORMATION);}}));});return;}
  auto report=[this](const std::wstring& operation,const std::wstring& success,ProcessResult result,bool refreshAfter=true){
   PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(new UiTask{[this,operation,success,result=std::move(result),refreshAfter]{
    const bool ok=result.exitCode==0&&result.error.empty();

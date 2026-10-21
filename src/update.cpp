@@ -79,6 +79,27 @@ bool HttpGet(const std::wstring& url,std::vector<BYTE>& body,std::wstring& error
   return HttpRead(url,[&](const BYTE* bytes,DWORD count){body.insert(body.end(),bytes,bytes+count);return true;},1024*1024,error,30000);
 }
 
+bool GitHubOwnerRepository(const std::wstring& value,std::wstring& owner,std::wstring& repository,std::wstring& error) {
+  owner.clear(); repository.clear();
+  std::wstring url=Trim(value);
+  if(url.starts_with(L"git@github.com:")) url=L"https://github.com/"+url.substr(15);
+  if(url.find(L"://")==std::wstring::npos) url=L"https://github.com/"+url;
+  URL_COMPONENTS parts{}; parts.dwStructSize=sizeof(parts); parts.dwHostNameLength=static_cast<DWORD>(-1); parts.dwUrlPathLength=static_cast<DWORD>(-1);
+  if(!WinHttpCrackUrl(url.c_str(),0,0,&parts)) { error=L"GitHubリポジトリURLを読み取れません。"; return false; }
+  const std::wstring host(parts.lpszHostName,parts.dwHostNameLength);
+  if(CompareStringOrdinal(host.c_str(),-1,L"github.com",-1,TRUE)!=CSTR_EQUAL) { error=L"GitHubのリポジトリURLを設定してください。"; return false; }
+  std::wstring path(parts.lpszUrlPath,parts.dwUrlPathLength);
+  while(!path.empty()&&path.front()==L'/')path.erase(path.begin());
+  while(!path.empty()&&path.back()==L'/')path.pop_back();
+  std::vector<std::wstring> segments; std::wistringstream input(path); std::wstring segment;
+  while(std::getline(input,segment,L'/'))if(!segment.empty())segments.push_back(segment);
+  if(segments.size()!=2||segments[0].empty()||segments[1].empty()) { error=L"GitHubリポジトリURLに所有者とリポジトリ名を指定してください。"; return false; }
+  owner=segments[0]; repository=segments[1];
+  if(IEndsWith(repository,L".git"))repository.resize(repository.size()-4);
+  if(owner.find_first_of(L"?#\\")!=std::wstring::npos||repository.empty()||repository.find_first_of(L"?#\\")!=std::wstring::npos) { error=L"GitHubリポジトリURLが正しくありません。"; return false; }
+  return true;
+}
+
 bool Sha256(const std::filesystem::path& file, std::wstring& digest, std::wstring& error) {
   digest.clear();
   BCRYPT_ALG_HANDLE algorithm{}; BCRYPT_HASH_HANDLE hash{};
@@ -153,5 +174,22 @@ bool DownloadAndVerifyUpdate(const UpdateInfo& info, std::filesystem::path& inst
   const auto verified=dir/(L"RoboconCadManagerSetup-"+info.version+L".exe");
   if(!MoveFileExW(partial,verified.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){error=L"検証済みの更新ファイルを保存できません。";return false;}
   installer=verified;return true;
+}
+
+bool DownloadGitIgnore(const std::wstring& repositoryUrl,const std::filesystem::path& destination,std::wstring& error) {
+  error.clear();
+  std::wstring owner,repository;
+  if(!GitHubOwnerRepository(repositoryUrl,owner,repository,error))return false;
+  const auto url=L"https://raw.githubusercontent.com/"+owner+L"/"+repository+L"/main/.gitignore";
+  std::vector<BYTE> bytes;
+  if(!HttpGet(url,bytes,error)) { error=L"GitHubから .gitignore を取得できません。\n"+error; return false; }
+  if(bytes.empty()) { error=L"GitHubの .gitignore が空です。"; return false; }
+  const auto temporary=destination.wstring()+L".download";
+  std::ofstream output(std::filesystem::path(temporary),std::ios::binary|std::ios::trunc);
+  if(!output) { error=L".gitignore の一時ファイルを作成できません。"; return false; }
+  output.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(bytes.size())); output.close();
+  if(!output) { DeleteFileW(temporary.c_str()); error=L".gitignore を保存できません。"; return false; }
+  if(!MoveFileExW(temporary.c_str(),destination.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) { DeleteFileW(temporary.c_str()); error=L".gitignore を作業フォルダーへ配置できません。\n"+LastError(); return false; }
+  return true;
 }
 }
