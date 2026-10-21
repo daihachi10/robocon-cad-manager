@@ -45,7 +45,8 @@ struct AppBrowserTest {
   App app;app.instance_=cls.hInstance;app.git_=GitClient(git);app.config_.Upsert(repository);app.selected_=0;
   app.window_=CreateWindowW(cls.lpszClassName,L"フォルダ表示テスト",WS_OVERLAPPEDWINDOW,0,0,1120,700,nullptr,nullptr,cls.hInstance,&app);Require(app.window_!=nullptr,"test window failed");
   app.CreateBrowserControls();app.cad_=ScanCad(repository);std::wstring error;app.changes_=app.git_.Status(repository,error);Require(error.empty(),"native UI status failed");app.changeChecks_=UpdatedChangeChecks(app.changes_,{});app.Populate();
-  Require(SendMessageW(app.filter_,CB_GETCURSEL,0,0)==0&&GetText(app.filter_)==L"すべてのファイル","file filter selection is blank");
+  Require(SendMessageW(app.filter_,CB_GETCURSEL,0,0)==0&&GetText(app.filter_)==L"SolidWorksファイル","default filter is not SolidWorks files");
+  Require(std::none_of(app.browserItems_.begin(),app.browserItems_.end(),[](const auto& item){return item.path==L"README.md";}),"default filter contains a non-SolidWorks file");
   Require(!IsWindowEnabled(GetDlgItem(app.window_,kBrowseBack)),"back enabled at initial root");
   Select(app,L"機構 A");NMITEMACTIVATE doubleClick{};doubleClick.hdr.hwndFrom=app.list_;doubleClick.hdr.code=NM_DBLCLK;doubleClick.iItem=Row(app,L"機構 A");SendMessageW(app.window_,WM_NOTIFY,0,reinterpret_cast<LPARAM>(&doubleClick));
   Require(app.folderNavigation_.Current()==L"機構 A","double click did not enter folder");
@@ -58,7 +59,7 @@ struct AppBrowserTest {
   ListView_SetCheckState(app.list_,Row(app,L"機構 A"),TRUE);Require(app.changeChecks_[L"機構 A/パーツ/既存.SLDPRT"],"folder selection did not select descendants");
   ListView_SetCheckState(app.list_,Row(app,L"機構 A"),FALSE);Require(!app.changeChecks_[L"機構 A/新しい 階層/部品1.SLDPRT"],"folder deselection did not clear descendant checks");
   app.HandleCommand(kBrowseBack);app.NavigateFolder(L"docs");Require(!app.folderNavigation_.CanForward(),"new navigation did not clear forward history");app.NavigateFolder(L"");
-  app.filterMode_=1;app.Populate();Require(Find(app.browserItems_,L"機構 A").directory,"filter hid folder navigation");app.filterMode_=0;app.Populate();
+  app.filterMode_=PartsOnly;app.Populate();Require(Find(app.browserItems_,L"機構 A").directory,"filter hid folder navigation");app.filterMode_=SolidWorksFiles;app.Populate();
   for(UINT dpi:{96u,120u,144u,192u}){
    SetWindowPos(app.window_,nullptr,0,0,MulDiv(1120,dpi,96),MulDiv(700,dpi,96),SWP_NOZORDER|SWP_NOACTIVATE);app.UpdateFonts(dpi);
    RECT client{},list{},label{};GetClientRect(app.window_,&client);GetWindowRect(app.list_,&list);GetWindowRect(app.folderLabel_,&label);MapWindowPoints(nullptr,app.window_,reinterpret_cast<POINT*>(&list),2);MapWindowPoints(nullptr,app.window_,reinterpret_cast<POINT*>(&label),2);
@@ -67,6 +68,8 @@ struct AppBrowserTest {
    LOGFONTW font{};GetObjectW(app.font_,sizeof(font),&font);Require(std::wstring(font.lfFaceName)==L"Yu Gothic UI","wrong Japanese font");
    Snapshot(app.window_,output/(L"folder-browser-"+std::to_wstring(dpi)+L".bmp"));
   }
+  Require(app.BeginOperation(L"テスト処理",L"処理中です。",L"git test"),"operation dialog did not open");Require(!IsWindowEnabled(app.window_),"operation dialog did not disable owner");app.CompleteOperation();Require(IsWindowEnabled(app.window_),"completed operation did not restore owner");
+  Require(app.BeginOperation(L"テスト処理",L"処理中です。",L"git test"),"second operation dialog did not open");app.FailOperation(L"失敗しました。",L"git test",L"終了コード: 1\r\nテストエラー");Require(!IsWindowEnabled(app.window_),"failed operation did not remain modal");app.operation_->Close();Require(IsWindowEnabled(app.window_),"closing failed operation did not restore owner");
   SetWindowPos(app.window_,nullptr,0,0,1120,700,SWP_NOZORDER|SWP_NOACTIVATE);app.UpdateFonts(96);app.NavigateFolder(L"機構 A/パーツ");Snapshot(app.window_,output/L"folder-browser-inside.bmp");app.NavigateFolder(L"");
   // Exercise the actual recursive Windows file notification and refresh path, with no polling in the app.
   app.StartLocalWatcher();app.RefreshLocal();PumpUntil(app,[&]{return !app.localRefreshRunning_;});
@@ -94,10 +97,10 @@ int wmain(int argc,wchar_t** argv){
   std::wstring error;auto changes=git.Status(repository,error);Require(error.empty(),"status failed");
   const auto part=std::find_if(changes.begin(),changes.end(),[](const auto& change){return change.path==L"機構 A/新しい 階層/部品1.SLDPRT";});Require(part!=changes.end()&&part->code==L"??","untracked folder was not expanded into individual files");
   const auto files=rc::ScanCad(repository);Require(std::none_of(files.begin(),files.end(),[](const auto& file){return file.path.generic_wstring().find(L"/.git/")!=std::wstring::npos||rc::IsTemporaryCadPath(file.path.wstring());}),"internal/temporary files scanned");
-  auto items=rc::BuildFolderItems(repository,L"",files,changes,0);Require(Find(items,L"機構 A").directory,"root folder missing");Require(Find(items,L"空フォルダ").directory,"empty folder missing");Require(Find(items,L"削除フォルダ").directory,"virtual deleted folder missing");Require(Find(items,L"README.md").name==L"README.md","normal local file missing");
+  auto items=rc::BuildFolderItems(repository,L"",files,changes,rc::AllFiles);Require(Find(items,L"機構 A").directory,"root folder missing");Require(Find(items,L"空フォルダ").directory,"empty folder missing");Require(Find(items,L"削除フォルダ").directory,"virtual deleted folder missing");Require(Find(items,L"README.md").name==L"README.md","normal local file missing");
   for(const auto& item:items)Require(item.name.find(L'/')==std::wstring::npos,"flattened folder prefix still visible");
-  items=rc::BuildFolderItems(repository,L"削除フォルダ",files,changes,0);Require(!Find(items,L"削除フォルダ/deleted.SLDASM").local,"deleted file reported as local");
-  items=rc::BuildFolderItems(repository,L"機構 A/新しい 階層",files,changes,1);Require(items.size()==1&&items.front().name==L"部品1.SLDPRT","nested filter or temporary exclusion failed");
+  items=rc::BuildFolderItems(repository,L"削除フォルダ",files,changes,rc::AllFiles);Require(!Find(items,L"削除フォルダ/deleted.SLDASM").local,"deleted file reported as local");
+  items=rc::BuildFolderItems(repository,L"機構 A/新しい 階層",files,changes,rc::PartsOnly);Require(items.size()==1&&items.front().name==L"部品1.SLDPRT","nested filter or temporary exclusion failed");
   auto checks=rc::UpdatedChangeChecks(changes,{});Require(checks[L"機構 A/パーツ/既存.SLDPRT"]&&checks[L"機構 A/新しい 階層/部品1.SLDPRT"],"nested changes were not auto-selected");checks[L"機構 A/パーツ/既存.SLDPRT"]=false;checks=rc::UpdatedChangeChecks(changes,checks);Require(!checks[L"機構 A/パーツ/既存.SLDPRT"],"manual deselection lost on refresh");
   rc::FolderNavigation navigation;Require(navigation.Navigate(L"機構 A\\パーツ")&&navigation.Current()==L"機構 A/パーツ","path normalization failed");Require(navigation.Up()&&navigation.Back()&&navigation.Forward(),"navigation history failed");Require(!navigation.Navigate(L"../outside")&&!navigation.Navigate(L"C:\\outside"),"navigation escaped repository");
   rc::AppBrowserTest::Run(repository,argv[1],root);

@@ -21,6 +21,7 @@
 #include <sstream>
 #include <algorithm>
 #include <set>
+#include <memory>
 
 namespace rc {
 inline std::wstring LastError(DWORD code = GetLastError()) { wchar_t* b{}; FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER|FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS,nullptr,code,0,reinterpret_cast<wchar_t*>(&b),0,nullptr); std::wstring s=b?b:L"不明なエラー"; if(b) LocalFree(b); return s; }

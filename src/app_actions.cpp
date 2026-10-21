@@ -14,6 +14,21 @@ std::wstring FailureMessage(const std::wstring& operation,const ProcessResult& r
  return operation+L"に失敗しました。（終了コード "+std::to_wstring(result.exitCode)+L"）";
 }
 
+std::wstring ProcessDetails(const ProcessResult& result){
+ std::wstring details=L"終了コード: "+std::to_wstring(result.exitCode)+L"\r\n\r\n";
+ details+=L"出力:\r\n"+(result.output.empty()?std::wstring(L"（出力なし）"):result.output);
+ if(!result.error.empty())details+=L"\r\n\r\nエラー:\r\n"+result.error;
+ return details;
+}
+
+std::wstring GitIgnoreDisplayUrl(std::wstring remote){
+ if(remote.starts_with(L"git@github.com:"))remote=L"https://github.com/"+remote.substr(15);
+ if(remote.find(L"://")==std::wstring::npos)remote=L"https://github.com/"+remote;
+ if(IEndsWith(remote,L".git"))remote.resize(remote.size()-4);
+ while(!remote.empty()&&remote.back()==L'/')remote.pop_back();
+ return remote+L"/blob/main/.gitignore";
+}
+
 }
 
 void App::ShowSetup(){
@@ -90,25 +105,26 @@ void App::HandleCommand(WORD id){
  if(id==more){HMENU menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,setup,L"設定");AppendMenuW(menu,MF_STRING,gitignore,L".gitignore を追加");if(repository&&repository->lfsLockEnabled){AppendMenuW(menu,MF_STRING,lfsSetup,L"LFSロック設定");AppendMenuW(menu,MF_STRING,locks,L"ロック状態を更新");AppendMenuW(menu,MF_STRING,unlock,L"選択ファイルのロック解除");}AppendMenuW(menu,MF_STRING,update,L"更新を確認");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,clone,L"複製");AppendMenuW(menu,MF_STRING,pull,L"最新状態だけ取得");AppendMenuW(menu,MF_STRING,refreshLocal,L"一覧だけ更新");AppendMenuW(menu,MF_STRING,open,L"ファイルを開く");POINT point;GetCursorPos(&point);TrackPopupMenu(menu,TPM_LEFTALIGN|TPM_TOPALIGN,point.x,point.y,0,window_,nullptr);DestroyMenu(menu);return;}
  if(id==update){CheckForUpdates(true);return;}
  if(!repository){MessageBoxW(window_,L"先にリポジトリを設定してください。",L"操作できません",MB_ICONINFORMATION);return;}
- if(id==gitignore){const auto destination=std::filesystem::path(repository->folder)/L".gitignore";if(!std::filesystem::is_directory(repository->folder)){MessageBoxW(window_,L"先に「その他」→「複製」で作業フォルダーを作成してください。",L".gitignore を追加できません",MB_ICONINFORMATION);return;}if(std::filesystem::exists(destination)&&MessageBoxW(window_,L".gitignore は既にあります。GitHubのmainブランチの内容で上書きしますか？",L".gitignore を追加",MB_YESNO|MB_ICONWARNING)!=IDYES)return;SetStatus(L"GitHubから .gitignore を取得しています。");Background([this,r=*repository,destination]{std::wstring error;const bool ok=DownloadGitIgnore(r.remote,destination,error);PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(new UiTask{[this,ok,error]{if(!ok){SetStatus(error);MessageBoxW(window_,error.c_str(),L".gitignore を追加できません",MB_ICONERROR);return;}SetStatus(L".gitignore を追加しました。保存して送信すると共有されます。");RefreshLocal();MessageBoxW(window_,L"GitHubから .gitignore を取得して作業フォルダーへ追加しました。\n\n保存して送信すると共有されます。",L".gitignore を追加しました",MB_ICONINFORMATION);}}));});return;}
+ if(id==gitignore){const auto destination=std::filesystem::path(repository->folder)/L".gitignore";if(!std::filesystem::is_directory(repository->folder)){MessageBoxW(window_,L"先に「その他」→「複製」で作業フォルダーを作成してください。",L".gitignore を追加できません",MB_ICONINFORMATION);return;}if(std::filesystem::exists(destination)&&MessageBoxW(window_,L".gitignore は既にあります。GitHubのmainブランチの内容で上書きしますか？",L".gitignore を追加",MB_YESNO|MB_ICONWARNING)!=IDYES)return;const auto command=L"HTTPS GET "+GitIgnoreDisplayUrl(repository->remote);if(!BeginOperation(L".gitignore を追加",L"GitHubから .gitignore を取得しています。",command))return;SetStatus(L"GitHubから .gitignore を取得しています。");Background([this,r=*repository,destination,command]{std::wstring error;const bool ok=DownloadGitIgnore(r.remote,destination,error);PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(new UiTask{[this,ok,error,command]{if(!ok){SetStatus(error);FailOperation(L".gitignore を追加できませんでした。",command,error);return;}CompleteOperation();SetStatus(L".gitignore を追加しました。保存して送信すると共有されます。");RefreshLocal();MessageBoxW(window_,L"GitHubから .gitignore を取得して作業フォルダーへ追加しました。\n\n保存して送信すると共有されます。",L".gitignore を追加しました",MB_ICONINFORMATION);}}));});return;}
  auto report=[this](const std::wstring& operation,const std::wstring& success,ProcessResult result,bool refreshAfter=true){
   PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(new UiTask{[this,operation,success,result=std::move(result),refreshAfter]{
    const bool ok=result.exitCode==0&&result.error.empty();
    const auto message=ok?success:FailureMessage(operation,result);
    SetStatus(message);
-   MessageBoxW(window_,message.c_str(),ok?L"操作が完了しました":L"操作に失敗しました",ok?MB_ICONINFORMATION:MB_ICONERROR);
+   if(ok){CompleteOperation();MessageBoxW(window_,message.c_str(),L"操作が完了しました",MB_ICONINFORMATION);}
+   else FailOperation(message,result.command,ProcessDetails(result));
    if(ok&&operation==L"変更の保存と送信")ReleasePendingLocks();
    if(refreshAfter)Refresh();
   }}));
  };
- if(id==refresh){SetStatus(L"GitHubから最新状態を取得しています。");Background([this,r=*repository,report]{report(L"更新",L"GitHubから最新状態を取得して一覧を更新しました。",git_.Pull(r));});return;}
+ if(id==refresh){if(!BeginOperation(L"更新",L"GitHubから最新状態を取得しています。",L"git pull --ff-only origin main"))return;SetStatus(L"GitHubから最新状態を取得しています。");Background([this,r=*repository,report]{report(L"更新",L"GitHubから最新状態を取得して一覧を更新しました。",git_.Pull(r));});return;}
  if(id==refreshLocal){RefreshLocal();return;}
- if(id==clone){SetStatus(L"リポジトリを複製しています。");Background([this,r=*repository,report]{auto result=git_.Clone(r);if(!result.exitCode)result=git_.Configure(r);report(L"リポジトリの複製",L"リポジトリを複製しました。",std::move(result));});return;}
- if(id==pull){SetStatus(L"GitHubから最新状態を取得しています。");Background([this,r=*repository,report]{report(L"最新状態の取得",L"最新状態を取得しました。",git_.Pull(r),false);});return;}
- if(id==lfsSetup){SetStatus(L"Git LFSロック設定を追加しています。");Background([this,r=*repository,report]{std::wstring error;report(L"LFSロック設定",L".gitattributesへLFSロック設定を追加しました。変更を選んで送信してください。",git_.SetupLfsLocking(r,error));});return;}
+ if(id==clone){if(!BeginOperation(L"リポジトリを複製",L"GitHubから作業フォルダーを複製しています。",L"git clone --recurse-submodules <リポジトリURL> <作業フォルダー>"))return;SetStatus(L"リポジトリを複製しています。");Background([this,r=*repository,report]{auto result=git_.Clone(r);if(!result.exitCode){auto configured=git_.Configure(r);if(configured.exitCode)result=std::move(configured);}report(L"リポジトリの複製",L"リポジトリを複製しました。",std::move(result));});return;}
+ if(id==pull){if(!BeginOperation(L"最新状態だけ取得",L"GitHubから最新状態を取得しています。",L"git pull --ff-only origin main"))return;SetStatus(L"GitHubから最新状態を取得しています。");Background([this,r=*repository,report]{report(L"最新状態の取得",L"最新状態を取得しました。",git_.Pull(r),false);});return;}
+ if(id==lfsSetup){if(!BeginOperation(L"LFSロック設定",L"Git LFSロック設定を追加しています。",L"git lfs install --local"))return;SetStatus(L"Git LFSロック設定を追加しています。");Background([this,r=*repository,report]{std::wstring error;report(L"LFSロック設定",L".gitattributesへLFSロック設定を追加しました。変更を選んで送信してください。",git_.SetupLfsLocking(r,error));});return;}
  if(id==locks){RefreshLocks();return;}
  if(id==unlock){SyncSolidWorksOpenState();int selected=ListView_GetNextItem(list_,-1,LVNI_SELECTED);if(selected<0||selected>=(int)listPaths_.size()){MessageBoxW(window_,L"解除するファイルを選択してください。",L"ファイルを選択してください",MB_ICONINFORMATION);return;}const auto path=listPaths_[selected];auto found=locks_.find(path);if(found==locks_.end()||!found->second.ours){MessageBoxW(window_,L"自分が保持しているロックだけを解除できます。",L"ロックを解除できません",MB_ICONINFORMATION);return;}if(opened_.contains(path)||git_.IsDirty(*repository,path)){MessageBoxW(window_,L"開いている、または変更済みのファイルは送信後に自動解除します。",L"ロックを解除できません",MB_ICONINFORMATION);return;}auto lock=found->second;Background([this,r=*repository,path,lock]{std::wstring error;bool ok;{std::lock_guard guard(lockWorkMutex_);ok=git_.Unlock(r,lock,error);}PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,path,ok,error]{if(ok){locks_.erase(path);Populate();}else MessageBoxW(window_,error.c_str(),L"ロックを解除できません",MB_ICONERROR);}});});return;}
- if(id==commit){std::vector<std::wstring> paths;for(const auto& change:changes_)if(changeChecks_[change.path])paths.push_back(change.path);if(paths.empty()){SetStatus(L"未送信の変更をGitHubへ送信しています。");Background([this,r=*repository,report]{report(L"変更の保存と送信",L"未送信の変更をGitHubへ送信しました。",git_.Push(r));});return;}auto message=Prompt(window_,L"変更を保存して送信",L"変更内容を日本語で入力してください");if(!message)return;SetStatus(L"選択した変更を保存してGitHubへ送信しています。");Background([this,r=*repository,paths=std::move(paths),message=*message,report]{report(L"変更の保存と送信",L"選択した変更を保存してGitHubへ送信しました。",git_.CommitPush(r,paths,message));});return;}
+ if(id==commit){std::vector<std::wstring> paths;for(const auto& change:changes_)if(changeChecks_[change.path])paths.push_back(change.path);if(paths.empty()){if(!BeginOperation(L"保存して送信",L"未送信の変更をGitHubへ送信しています。",L"git push origin main"))return;SetStatus(L"未送信の変更をGitHubへ送信しています。");Background([this,r=*repository,report]{report(L"変更の保存と送信",L"未送信の変更をGitHubへ送信しました。",git_.Push(r));});return;}auto message=Prompt(window_,L"変更を保存して送信",L"変更内容を日本語で入力してください");if(!message)return;if(!BeginOperation(L"保存して送信",L"選択した変更を保存してGitHubへ送信しています。",L"git add → git commit → git push origin main"))return;SetStatus(L"選択した変更を保存してGitHubへ送信しています。");Background([this,r=*repository,paths=std::move(paths),message=*message,report]{report(L"変更の保存と送信",L"選択した変更を保存してGitHubへ送信しました。",git_.CommitPush(r,paths,message));});return;}
  if(id==open){int selected=ListView_GetNextItem(list_,-1,LVNI_SELECTED);if(selected<0||selected>=(int)listPaths_.size()){MessageBoxW(window_,L"開くファイルを選択してください。",L"ファイルを選択してください",MB_ICONINFORMATION);return;}if(selected<static_cast<int>(browserItems_.size())&&browserItems_[selected].directory){NavigateFolder(listPaths_[selected]);return;}const auto found=localFiles_.find(listPaths_[selected]);if(found==localFiles_.end()){MessageBoxW(window_,L"削除済みのファイルは開けません。",L"ファイルを開けません",MB_ICONINFORMATION);return;}const bool cad=IEndsWith(listPaths_[selected],L".sldprt")||IEndsWith(listPaths_[selected],L".sldasm")||IEndsWith(listPaths_[selected],L".slddrw");if(cad)LockPath(listPaths_[selected],true);else ShellExecuteW(window_,L"open",found->second.c_str(),nullptr,nullptr,SW_SHOWNORMAL);return;}
 }
 
@@ -152,19 +168,23 @@ void App::ShowHistory(const std::wstring& path,bool restore){auto* repo=Current(
 void App::CheckForUpdates(bool manual){
   if (!SyncSolidWorksOpenState()) { if(manual)MessageBoxW(window_,L"SolidWorksの状態を確認できません。操作が完了してから再実行してください。",L"更新を延期しました",MB_ICONINFORMATION);return; }
   if (!opened_.empty()||!locking_.empty()) { if (manual) MessageBoxW(window_, L"SolidWorksでファイルを開いているため、更新を延期しました。ファイルを閉じてから再実行してください。", L"更新を延期しました", MB_ICONINFORMATION); return; }
+  const std::wstring manifestCommand=L"HTTPS GET https://github.com/daihachi10/robocon-cad-manager/releases/latest/download/update.json";
+  if(manual&&!BeginOperation(L"更新を確認",L"新しいバージョンを確認しています。",manifestCommand))return;
   if(manual) SetStatus(L"更新を確認しています。");
   Background([this,manual]{
     auto result=rc::CheckForUpdate();
     auto* task=new UiTask{[this,result=std::move(result),manual]() mutable {
-      if(!result.ok){if(manual)MessageBoxW(window_,result.error.c_str(),L"更新を確認できません",MB_ICONWARNING);return;}
-      if(!result.available){if(manual)MessageBoxW(window_,L"すでに最新版です。",L"更新確認",MB_ICONINFORMATION);return;}
+      if(!result.ok){if(manual){SetStatus(result.error);FailOperation(L"更新を確認できませんでした。",L"",result.error);}return;}
+      if(!result.available){if(manual){CompleteOperation();SetStatus(L"すでに最新版です。");MessageBoxW(window_,L"すでに最新版です。",L"更新確認",MB_ICONINFORMATION);}return;}
+      if(manual)CompleteOperation();
       std::wstring prompt=L"新しいバージョン "+result.info.version+L" が利用できます。\n\n"+result.info.notes+L"\n\n今すぐ更新しますか？";
       if(MessageBoxW(window_,prompt.c_str(),L"アプリの更新",MB_YESNO|MB_ICONINFORMATION)!=IDYES)return;
+      if(!BeginOperation(L"アプリを更新",L"更新ファイルをダウンロードして検証しています。",L"HTTPS GET "+result.info.installerUrl))return;
       SetStatus(L"更新ファイルをダウンロードしています。");
       Background([this,info=result.info]{
         std::filesystem::path installer; std::wstring error;
-        if(!rc::DownloadAndVerifyUpdate(info,installer,error)){auto* fail=new UiTask{[this,error]{MessageBoxW(window_,error.c_str(),L"更新できません",MB_ICONERROR);SetStatus(error);}};PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(fail));return;}
-        auto* done=new UiTask{[this,installer]{if(!SyncSolidWorksOpenState()||!opened_.empty()||!locking_.empty()){SetStatus(L"ファイルを開いているか処理中のため、更新を延期しました。");return;}SHELLEXECUTEINFOW execute{sizeof(execute)};execute.fMask=SEE_MASK_NOCLOSEPROCESS;execute.lpVerb=L"open";execute.lpFile=installer.c_str();execute.nShow=SW_SHOWNORMAL;if(!ShellExecuteExW(&execute)){auto e=LastError();MessageBoxW(window_,e.c_str(),L"更新できません",MB_ICONERROR);return;}SetStatus(L"更新を開始しました。アプリを終了します。");PostMessageW(window_,WM_CLOSE,0,0);}};PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(done));
+        if(!rc::DownloadAndVerifyUpdate(info,installer,error)){auto* fail=new UiTask{[this,error,command=L"HTTPS GET "+info.installerUrl]{SetStatus(error);FailOperation(L"更新ファイルを取得できませんでした。",command,error);}};PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(fail));return;}
+        auto* done=new UiTask{[this,installer]{if(!SyncSolidWorksOpenState()||!opened_.empty()||!locking_.empty()){const auto error=L"ファイルを開いているか処理中のため、更新を延期しました。";SetStatus(error);FailOperation(L"更新を開始できませんでした。",L"",error);return;}SHELLEXECUTEINFOW execute{sizeof(execute)};execute.fMask=SEE_MASK_NOCLOSEPROCESS;execute.lpVerb=L"open";execute.lpFile=installer.c_str();execute.nShow=SW_SHOWNORMAL;if(!ShellExecuteExW(&execute)){auto e=LastError();SetStatus(e);FailOperation(L"インストーラーを起動できませんでした。",L"",e);return;}CompleteOperation();SetStatus(L"更新を開始しました。アプリを終了します。");MessageBoxW(window_,L"更新用インストーラーを起動しました。アプリを終了します。",L"更新を開始しました",MB_ICONINFORMATION);PostMessageW(window_,WM_CLOSE,0,0);}};PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(done));
       });
     }};
     if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(task)))delete task;

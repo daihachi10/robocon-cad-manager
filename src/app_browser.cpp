@@ -23,7 +23,7 @@ void App::CreateBrowserControls(){
  button(101,L"更新");button(105,L"保存して送信");button(107,L"その他");
  button(kBrowseBack,L"←");button(kBrowseForward,L"→");button(kBrowseUp,L"↑");button(kOpenExplorer,L"エクスプローラーで開く");
  filter_=CreateWindowW(WC_COMBOBOXW,L"",WS_CHILD|WS_VISIBLE|WS_TABSTOP|CBS_DROPDOWNLIST,0,0,0,0,window_,reinterpret_cast<HMENU>(kFilter),instance_,nullptr);
- for(auto text:{L"すべてのファイル",L"パーツ (.SLDPRT)",L"アセンブリ (.SLDASM)",L"図面 (.SLDDRW)"})SendMessageW(filter_,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text));
+ for(auto text:{L"SolidWorksファイル",L"すべてのファイル",L"パーツ",L"アセンブリ",L"図面"})SendMessageW(filter_,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(text));
  SendMessageW(filter_,CB_SETCURSEL,0,0);
  folderLabel_=CreateWindowW(L"STATIC",L"作業フォルダ",WS_CHILD|WS_VISIBLE|SS_CENTERIMAGE|SS_PATHELLIPSIS,0,0,0,0,window_,nullptr,instance_,nullptr);
  UpdateFonts(GetDpiForWindow(window_));UpdateNavigationBar();

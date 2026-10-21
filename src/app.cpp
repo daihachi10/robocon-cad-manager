@@ -60,12 +60,15 @@ LRESULT App::WndProc(HWND h,UINT msg,WPARAM w,LPARAM l){
  case WM_APP_UPDATE:CheckForUpdates(false);return 0;
  case WM_NOTIFY:return HandleListNotification(l);
  case WM_DPICHANGED:{auto rect=(RECT*)l;SetWindowPos(window_,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);UpdateFonts(GetDpiForWindow(window_));return 0;}
- case WM_DESTROY:StopLocalWatcher();solidworks_.Stop();if(dropTarget_){RevokeDragDrop(list_);dropTarget_->Release();dropTarget_=nullptr;}if(images_)ImageList_Destroy(images_);if(font_)DeleteObject(font_);if(strikeFont_)DeleteObject(strikeFont_);PostQuitMessage(0);return 0;
+ case WM_DESTROY:operation_.reset();StopLocalWatcher();solidworks_.Stop();if(dropTarget_){RevokeDragDrop(list_);dropTarget_->Release();dropTarget_=nullptr;}if(images_)ImageList_Destroy(images_);if(font_)DeleteObject(font_);if(strikeFont_)DeleteObject(strikeFont_);PostQuitMessage(0);return 0;
  }return DefWindowProcW(h,msg,w,l);
 }
 Repository* App::Current(){return selected_>=0&&selected_<(int)config_.Repositories().size()?const_cast<Repository*>(&config_.Repositories()[selected_]):nullptr;}
 const Repository* App::Current()const{return selected_>=0&&selected_<(int)config_.Repositories().size()?&config_.Repositories()[selected_]:nullptr;}
 void App::SetStatus(const std::wstring& text){SetWindowTextW(status_,text.c_str());}
+bool App::BeginOperation(const std::wstring& title,const std::wstring& stage,const std::wstring& command){if(operation_&&operation_->Visible()){SetForegroundWindow(window_);return false;}operation_=std::make_unique<OperationDialog>();if(!operation_->Show(window_,title,stage,command)){operation_.reset();MessageBoxW(window_,L"処理状況の画面を表示できません。",L"処理を開始できません",MB_ICONERROR);return false;}return true;}
+void App::CompleteOperation(){if(operation_)operation_->Close();}
+void App::FailOperation(const std::wstring& summary,const std::wstring& command,const std::wstring& details){if(operation_&&operation_->Visible())operation_->Fail(summary,command,details);else MessageBoxW(window_,details.c_str(),L"処理に失敗しました",MB_ICONERROR);}
 void App::DeleteSelectedFile(){SyncSolidWorksOpenState();const int selected=ListView_GetNextItem(list_,-1,LVNI_SELECTED);if(selected<0||selected>=static_cast<int>(listPaths_.size())){MessageBoxW(window_,L"削除するファイルを選択してください。",L"ファイルを選択してください",MB_ICONINFORMATION);return;}if(selected<static_cast<int>(browserItems_.size())&&browserItems_[selected].directory){MessageBoxW(window_,L"フォルダの中へ移動し、削除するファイルを選択してください。",L"ファイルを選択してください",MB_ICONINFORMATION);return;}const auto path=listPaths_[selected];auto local=localFiles_.find(path);if(local==localFiles_.end()){MessageBoxW(window_,L"この項目には削除できるローカルファイルがありません。",L"ファイルを削除できません",MB_ICONINFORMATION);return;}if(opened_.contains(path)){MessageBoxW(window_,L"SolidWorksで開いているファイルは削除できません。先に閉じてください。",L"ファイルを削除できません",MB_ICONWARNING);return;}const auto message=L"次のファイルをローカルから削除します。\n\n"+path+L"\n\n削除後は保存して送信するまでGitHubへは反映されません。続けますか？";if(MessageBoxW(window_,message.c_str(),L"ファイルを削除",MB_YESNO|MB_ICONWARNING)!=IDYES)return;if(!DeleteFileW(local->second.c_str())){const auto error=LastError();MessageBoxW(window_,error.c_str(),L"ファイルを削除できません",MB_ICONERROR);return;}SetStatus(L"ファイルを削除しました。保存して送信すると共有されます。");RefreshLocal();}
 void App::StartLocalWatcher(){
  StopLocalWatcher();++repositoryGeneration_;

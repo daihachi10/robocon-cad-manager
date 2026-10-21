@@ -3,6 +3,7 @@
 #include "git.h"
 
 namespace rc {
+enum CadFilterMode { SolidWorksFiles=0, AllFiles=1, PartsOnly=2, AssembliesOnly=3, DrawingsOnly=4 };
 struct BrowserItem {
  std::wstring path,name,changeCode;
  bool directory{},local{},lfsPointer{},suspiciousName{};

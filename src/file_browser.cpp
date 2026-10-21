@@ -15,10 +15,11 @@ bool IsTemporaryCadPath(const std::wstring& path){
  return false;
 }
 bool MatchesCadFilter(const std::wstring& path,int mode){
- if(mode==1)return IEndsWith(path,L".sldprt");
- if(mode==2)return IEndsWith(path,L".sldasm");
- if(mode==3)return IEndsWith(path,L".slddrw");
- return true;
+ if(mode==AllFiles)return true;
+ if(mode==PartsOnly)return IEndsWith(path,L".sldprt");
+ if(mode==AssembliesOnly)return IEndsWith(path,L".sldasm");
+ if(mode==DrawingsOnly)return IEndsWith(path,L".slddrw");
+ return IEndsWith(path,L".sldprt")||IEndsWith(path,L".sldasm")||IEndsWith(path,L".slddrw");
 }
 
 std::vector<BrowserItem> BuildFolderItems(const Repository& repository,const std::wstring& folder,
