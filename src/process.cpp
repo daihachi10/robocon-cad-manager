@@ -14,6 +14,7 @@ std::wstring ActualCommand(const std::filesystem::path& exe,const std::vector<st
  std::wstring command=QuoteArg(exe.wstring());for(const auto& argument:args)command+=L" "+QuoteArg(argument);return command;
 }
 }
+std::wstring ProcessDisplayCommand(const std::filesystem::path& exe,const std::vector<std::wstring>& args){return DisplayCommand(exe,args);}
 ProcessResult RunProcess(const std::filesystem::path&exe,const std::vector<std::wstring>&args,const std::filesystem::path&cwd,const std::wstring&input){
  ProcessResult r;r.exitCode=MAXDWORD;r.command=DisplayCommand(exe,args);const auto cmd=ActualCommand(exe,args);
  SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE};HANDLE outRead{},outWrite{};if(!CreatePipe(&outRead,&outWrite,&sa,0)){r.error=LastError();return r;}SetHandleInformation(outRead,HANDLE_FLAG_INHERIT,0);

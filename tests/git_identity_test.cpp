@@ -24,7 +24,11 @@ int wmain(int argc,wchar_t** argv){
   run(work,{L"add",L"--",L"初回.txt"});
   require(git.Run(work,{L"commit",L"-m",L"must fail without identity"}).exitCode==128,"missing identity was not reproduced");
   rc::Repository repo{L"test",remote.wstring(),work.wstring(),L"設計 太郎",L"first@example.invalid"};
-  require(git.CommitPush(repo,{L"初回.txt"},L"identity supplied by application").exitCode==0,"application did not configure identity before commit/push");
+  struct Progress {std::wstring stage,command;int completed{},total{};bool hasResult{};};std::vector<Progress> progress;
+  auto callback=[&](const std::wstring& stage,const std::wstring& command,int completed,int total,const rc::ProcessResult* result){progress.push_back({stage,command,completed,total,result!=nullptr});};
+  require(git.CommitPush(repo,{L"初回.txt"},L"identity supplied by application",callback).exitCode==0,"application did not configure identity before commit/push");
+  require(progress.size()==6&&progress[0].completed==0&&progress[1].completed==1&&progress[3].completed==2&&progress[5].completed==3,"add/commit/push progress was not reported");
+  require(progress[0].command.find(L"add")!=std::wstring::npos&&progress[2].command.find(L"commit")!=std::wstring::npos&&progress[4].command.find(L"push")!=std::wstring::npos,"running add/commit/push commands were not reported");
   require(run(work,{L"log",L"-1",L"--format=%an <%ae>"})==L"設計 太郎 <first@example.invalid>","wrong first commit identity");
 
   // Saving settings updates an existing repository without cloning it again.
