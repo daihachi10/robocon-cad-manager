@@ -63,21 +63,25 @@ INT_PTR CALLBACK SetupProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
                   WS_CHILD | WS_VISIBLE, 12, y, 440, 18, window, nullptr, nullptr, nullptr);
     CreateWindowW(L"STATIC", L"変更はmainまたはorigin/mainへ直接送信します。",
                   WS_CHILD | WS_VISIBLE, 12, y + 22, 440, 18, window, nullptr, nullptr, nullptr);
-    CreateWindowW(L"BUTTON", L"LFSロック設定を追加", WS_CHILD | WS_VISIBLE,
-                  12, y + 52, 170, 28, window, reinterpret_cast<HMENU>(201), nullptr, nullptr);
+    HWND locking = CreateWindowW(L"BUTTON", L"LFSロック機能を使用する（通常はオフ）", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                  12, y + 48, 285, 24, window, reinterpret_cast<HMENU>(202), nullptr, nullptr);
+    SendMessageW(locking, BM_SETCHECK, state->fields->lfsLockEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    CreateWindowW(L"BUTTON", L"LFSロック設定を追加して有効化", WS_CHILD | WS_VISIBLE,
+                  12, y + 78, 220, 28, window, reinterpret_cast<HMENU>(201), nullptr, nullptr);
     CreateWindowW(L"BUTTON", L"保存", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                  275, y + 52, 80, 28, window, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
+                  275, y + 78, 80, 28, window, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
     CreateWindowW(L"BUTTON", L"キャンセル", WS_CHILD | WS_VISIBLE,
-                  360, y + 52, 82, 28, window, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+                  360, y + 78, 82, 28, window, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
     state->font = CreateJapaneseFont(window);
     ApplyJapaneseFont(window, state->font);
     return TRUE;
   }
   if (message == WM_COMMAND && (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL || LOWORD(wParam) == 201)) {
-    if (LOWORD(wParam) == 201) state->fields->enableLfsSetup = true;
+    if (LOWORD(wParam) == 201) { state->fields->enableLfsSetup = true; state->fields->lfsLockEnabled = true; }
     if (LOWORD(wParam) == IDOK || LOWORD(wParam) == 201) {
       std::vector<std::wstring*> values = {&state->fields->name, &state->fields->remote, &state->fields->folder, &state->fields->userName, &state->fields->userEmail};
       for (size_t i = 0; i < values.size(); ++i) *values[i] = GetText(state->edits[i]);
+      if (LOWORD(wParam) == IDOK) state->fields->lfsLockEnabled = SendMessageW(GetDlgItem(window, 202), BM_GETCHECK, 0, 0) == BST_CHECKED;
       state->accepted = true;
     }
     EndDialog(window, 0);
@@ -158,7 +162,7 @@ DLGTEMPLATE* MakeTemplateSize(short width,short height) {
 
 bool ShowSetupDialog(HWND owner, SetupFields& fields) {
   SetupState state{&fields};
-  auto* templateData = MakeTemplateSize(470, 370);
+  auto* templateData = MakeTemplateSize(470, 400);
   const auto result = DialogBoxIndirectParamW(GetModuleHandleW(nullptr), templateData, owner, SetupProc, reinterpret_cast<LPARAM>(&state));
   LocalFree(templateData);
   return result != -1 && state.accepted;

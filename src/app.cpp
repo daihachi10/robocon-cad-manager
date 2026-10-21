@@ -94,7 +94,7 @@ void App::UpdateBrowserImages(UINT dpi){
  const auto old=ListView_SetImageList(list_,images,LVSIL_SMALL);images_=images;if(old)ImageList_Destroy(old);
 }
 void App::Background(std::function<void()> task){std::thread([this,task=std::move(task)]()mutable{try{task();}catch(const std::exception& ex){auto message=Wide(ex.what());if(message.empty())message=L"バックグラウンド処理でエラーが発生しました。";auto*done=new UiTask{[this,message]{SetStatus(message);MessageBoxW(window_,message.c_str(),L"処理エラー",MB_ICONERROR);}};if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(done)))delete done;}catch(...){auto*done=new UiTask{[this]{const auto message=L"バックグラウンド処理で不明なエラーが発生しました。";SetStatus(message);MessageBoxW(window_,message,L"処理エラー",MB_ICONERROR);}};if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(done)))delete done;}}).detach();}
-void App::Refresh(){locksKnown_=false;RefreshLocal();RefreshLocks();}
+void App::Refresh(){locksKnown_=false;RefreshLocal();if(Current()&&Current()->lfsLockEnabled)RefreshLocks();else{locks_.clear();pendingUnlock_.clear();Populate();}}
 void App::RefreshLocal(){
  SyncSolidWorksOpenState();
  if(!Current())return;
@@ -127,7 +127,7 @@ void App::RefreshLocal(){
  });
 }
 void App::RefreshLocks(){
- if(!Current())return;
+ if(!Current()||!Current()->lfsLockEnabled){locks_.clear();locksKnown_=false;Populate();return;}
  Background([this,r=*Current(),generation=repositoryGeneration_]{
   std::wstring error;std::lock_guard guard(lockWorkMutex_);auto result=git_.ListLocks(r,error);
   PostMessageW(window_,WM_APP_DONE,0,(LPARAM)new UiTask{[this,generation,result=std::move(result),error]()mutable{
@@ -154,6 +154,14 @@ void App::ContinueWithForeignLock(const std::wstring& path,const std::filesystem
 
 void App::LockPath(const std::wstring& path,bool openAfter){
  if(!Current())return;
+ if(!Current()->lfsLockEnabled){
+  if(!openAfter){opened_.insert(path);Populate();return;}
+  const auto localPath=std::filesystem::path(Current()->folder)/std::filesystem::path(path);
+  std::wstring error;
+  if(!MakeCadWritable(localPath,error)){MessageBoxW(window_,error.c_str(),L"ファイルを編集できません",MB_ICONERROR);SetStatus(error);return;}
+  if(!OpenFile(localPath,error)){MessageBoxW(window_,error.c_str(),L"ファイルを開けません",MB_ICONERROR);SetStatus(error);return;}
+  opened_.insert(path);Populate();return;
+ }
  const bool alreadyOpen=!openAfter&&!opened_.insert(path).second;
  if(alreadyOpen&&!openAfter)return; // Suppress duplicate SolidWorks open/context notifications.
  const auto localPath=std::filesystem::path(Current()->folder)/std::filesystem::path(path);
@@ -191,7 +199,7 @@ void App::LockPath(const std::wstring& path,bool openAfter){
  });
 }
 void App::ClosedPath(const std::wstring& path){
- opened_.erase(path);if(!Current())return;const auto found=locks_.find(path);
+ opened_.erase(path);if(!Current()||!Current()->lfsLockEnabled){Populate();return;}const auto found=locks_.find(path);
  if(found==locks_.end()||!found->second.ours){Populate();return;}
  if(!closing_.insert(path).second)return;
  Background([this,r=*Current(),path,lock=found->second,generation=repositoryGeneration_]{
@@ -224,7 +232,7 @@ bool App::SyncSolidWorksOpenState(){
  syncingSolidWorks_=false;return true;
 }
 void App::ReleasePendingLocks(){
- if(!Current()||!SyncSolidWorksOpenState())return;
+ if(!Current()||!Current()->lfsLockEnabled||!SyncSolidWorksOpenState())return;
  std::vector<std::wstring> release;for(const auto& [path,lock]:locks_)if(lock.ours&&!opened_.contains(path)&&!locking_.contains(path))release.push_back(path);
  for(const auto& path:release)ClosedPath(path);
 }

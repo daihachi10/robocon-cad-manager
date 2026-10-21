@@ -18,14 +18,14 @@ std::wstring FailureMessage(const std::wstring& operation,const ProcessResult& r
 
 void App::ShowSetup(){
  SetupFields f;
- if(auto*r=Current()){f.name=r->name;f.remote=r->remote;f.folder=r->folder;f.userName=r->userName;f.userEmail=r->userEmail;}
+ if(auto*r=Current()){f.name=r->name;f.remote=r->remote;f.folder=r->folder;f.userName=r->userName;f.userEmail=r->userEmail;f.lfsLockEnabled=r->lfsLockEnabled;}
  if(!ShowSetupDialog(window_,f))return;
  f.userName=Trim(f.userName);f.userEmail=Trim(f.userEmail);
  if(f.name.empty()||f.remote.empty()||f.folder.empty()){MessageBoxW(window_,L"表示名、リポジトリURL、作業フォルダは必須です。",L"設定を保存できません",MB_ICONWARNING);return;}
  if(f.userName.empty()||f.userEmail.empty()){MessageBoxW(window_,L"変更記録に使う氏名とメールアドレスを入力してください。",L"設定を保存できません",MB_ICONWARNING);return;}
  if(f.remote.find(L"://")==std::wstring::npos&&f.remote.find(L"/")!=std::wstring::npos)f.remote=L"https://github.com/"+f.remote+L".git";
  if(f.remote.starts_with(L"http://github.com/"))f.remote.replace(0,5,L"https");
- Repository repository{f.name,f.remote,f.folder,f.userName,f.userEmail};
+ Repository repository{f.name,f.remote,f.folder,f.userName,f.userEmail,f.lfsLockEnabled};
  config_.Upsert(repository);
  std::wstring error;
  if(!config_.Save(error)){MessageBoxW(window_,error.c_str(),L"設定を保存できません",MB_ICONERROR);return;}
@@ -42,14 +42,14 @@ void App::ShowSetup(){
     result=git_.Configure(repository);
     if(!result.exitCode&&enableLfsSetup){result=git_.SetupLfsLocking(repository,setupError);if(result.error.empty()&&!setupError.empty())result.error=setupError;}
    }
-   auto* task=new UiTask{[this,result=std::move(result),enableLfsSetup]() mutable {
+   auto* task=new UiTask{[this,repository,result=std::move(result),enableLfsSetup]() mutable {
     if(result.exitCode||!result.error.empty()){
      const auto error=FailureMessage(L"Gitへの設定反映",result);
      MessageBoxW(window_,error.c_str(),L"Gitに設定を反映できません",MB_ICONERROR);
      SetStatus(error);
     }else{
      if(enableLfsSetup){MessageBoxW(window_,L".gitattributesへLFSロック設定を追加しました。変更を選んで送信してください。",L"LFSロック設定",MB_ICONINFORMATION);Refresh();}
-     SetStatus(L"設定を保存し、Gitに変更記録の氏名・メールアドレスを反映しました。");
+     else SetStatus(repository.lfsLockEnabled?L"設定を保存しました。LFSロック機能を使用します。":L"設定を保存しました。LFSロック機能は無効です。誰でも自由に編集できます。");
     }
    }};
    if(!PostMessageW(window_,WM_APP_DONE,0,reinterpret_cast<LPARAM>(task)))delete task;
@@ -87,7 +87,7 @@ void App::HandleCommand(WORD id){
  if(id==kContextRename){RenameSelected();return;}
  if(id==kContextHistory||id==kContextRestore){int s=ListView_GetNextItem(list_,-1,LVNI_SELECTED);if(s>=0&&s<(int)listPaths_.size()&&!browserItems_[s].directory)ShowHistory(listPaths_[s],id==kContextRestore);return;}
  if(id==setup){ShowSetup();return;}
- if(id==more){HMENU menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,setup,L"設定");AppendMenuW(menu,MF_STRING,lfsSetup,L"LFSロック設定");AppendMenuW(menu,MF_STRING,locks,L"ロック状態を更新");AppendMenuW(menu,MF_STRING,unlock,L"選択ファイルのロック解除");AppendMenuW(menu,MF_STRING,update,L"更新を確認");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,clone,L"複製");AppendMenuW(menu,MF_STRING,pull,L"最新状態だけ取得");AppendMenuW(menu,MF_STRING,refreshLocal,L"一覧だけ更新");AppendMenuW(menu,MF_STRING,open,L"ファイルを開く");POINT point;GetCursorPos(&point);TrackPopupMenu(menu,TPM_LEFTALIGN|TPM_TOPALIGN,point.x,point.y,0,window_,nullptr);DestroyMenu(menu);return;}
+ if(id==more){HMENU menu=CreatePopupMenu();AppendMenuW(menu,MF_STRING,setup,L"設定");if(repository&&repository->lfsLockEnabled){AppendMenuW(menu,MF_STRING,lfsSetup,L"LFSロック設定");AppendMenuW(menu,MF_STRING,locks,L"ロック状態を更新");AppendMenuW(menu,MF_STRING,unlock,L"選択ファイルのロック解除");}AppendMenuW(menu,MF_STRING,update,L"更新を確認");AppendMenuW(menu,MF_SEPARATOR,0,nullptr);AppendMenuW(menu,MF_STRING,clone,L"複製");AppendMenuW(menu,MF_STRING,pull,L"最新状態だけ取得");AppendMenuW(menu,MF_STRING,refreshLocal,L"一覧だけ更新");AppendMenuW(menu,MF_STRING,open,L"ファイルを開く");POINT point;GetCursorPos(&point);TrackPopupMenu(menu,TPM_LEFTALIGN|TPM_TOPALIGN,point.x,point.y,0,window_,nullptr);DestroyMenu(menu);return;}
  if(id==update){CheckForUpdates(true);return;}
  if(!repository){MessageBoxW(window_,L"先にリポジトリを設定してください。",L"操作できません",MB_ICONINFORMATION);return;}
  auto report=[this](const std::wstring& operation,const std::wstring& success,ProcessResult result,bool refreshAfter=true){

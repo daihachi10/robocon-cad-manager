@@ -115,15 +115,17 @@ void App::Populate(){
  if(const auto* repository=Current())browserItems_=BuildFolderItems(*repository,folderNavigation_.Current(),cad_,changes_,filterMode_);
  for(const auto& entry:browserItems_){
   auto locked=locks_.find(entry.path);
+  const bool lockingEnabled=Current()&&Current()->lfsLockEnabled;
   LVITEMW item{};item.mask=LVIF_TEXT|LVIF_IMAGE;item.iItem=ListView_GetItemCount(list_);item.pszText=const_cast<LPWSTR>(entry.name.c_str());
-  item.iImage=entry.directory?2:(!locksKnown_?-1:(locked==locks_.end()?0:1));ListView_InsertItem(list_,&item);
+  item.iImage=entry.directory?2:(!lockingEnabled?-1:(!locksKnown_?-1:(locked==locks_.end()?0:1)));ListView_InsertItem(list_,&item);
   auto state=entry.directory?(entry.changedPaths.empty()?std::wstring(L"フォルダ"):L"変更あり（"+std::to_wstring(entry.changedPaths.size())+L"件）"):
    (entry.changeCode.empty()?std::wstring(L"変更なし"):ChangeDescription(entry.changeCode));
   if(entry.lfsPointer)state+=L" / 大容量ファイルの本体未取得";
   if(entry.suspiciousName)state+=L" / 版名を見直してください";
   std::wstring editing,last,size;
   if(!entry.directory){
-   if(!locksKnown_)editing=L"ロック状態を確認できません";
+   if(!lockingEnabled)editing=L"ロック機能は一時的に無効です";
+   else if(!locksKnown_)editing=L"ロック状態を確認できません";
    else if(locked==locks_.end())editing=L"-";
    else if(locked->second.ours)editing=opened_.contains(entry.path)?L"自分が編集中":(pendingUnlock_.contains(entry.path)?L"自分のロック（送信待ち）":L"自分のロック（閉じています）");
    else editing=locked->second.owner.empty()?L"他の利用者が編集中":L"["+locked->second.owner+L"] が編集中";
