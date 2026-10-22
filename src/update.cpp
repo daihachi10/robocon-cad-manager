@@ -176,18 +176,23 @@ bool DownloadAndVerifyUpdate(const UpdateInfo& info, std::filesystem::path& inst
   installer=verified;return true;
 }
 
-bool DownloadGitIgnore(const std::wstring& repositoryUrl,const std::filesystem::path& destination,std::wstring& error) {
+bool DownloadGitIgnore(const std::wstring&,const std::filesystem::path& destination,std::wstring& error) {
   error.clear();
-  std::wstring owner,repository;
-  if(!GitHubOwnerRepository(repositoryUrl,owner,repository,error))return false;
-  const auto url=L"https://raw.githubusercontent.com/"+owner+L"/"+repository+L"/main/.gitignore";
-  std::vector<BYTE> bytes;
-  if(!HttpGet(url,bytes,error)) { error=L"GitHubから .gitignore を取得できません。\n"+error; return false; }
-  if(bytes.empty()) { error=L"GitHubの .gitignore が空です。"; return false; }
+  // 配布したテンプレートを使う。非公開リポジトリでもネットワーク認証なしで追加できる。
+  constexpr char content[] =
+    "# gitignore file for a SolidWorks project\r\n\r\n"
+    "# SolidWorks temporary files\r\n"
+    "~$*.sldprt\r\n~$*.sldasm\r\n~$*.slddrw\r\n~$*.sld\r\n\r\n"
+    "# For systems with case-sensitive (SolidWorks uses both)\r\n"
+    "~$*.SLDPRT\r\n~$*.SLDASM\r\n~$*.SLDDRW\r\n~$*.SLD\r\n\r\n"
+    "# SolidWorks backups and auto-recovery\r\n"
+    "*.bak\r\n*.swbak\r\n\r\n"
+    "# Cache of simulation results\r\n"
+    "/simulation_results/\r\n";
   const auto temporary=destination.wstring()+L".download";
   std::ofstream output(std::filesystem::path(temporary),std::ios::binary|std::ios::trunc);
   if(!output) { error=L".gitignore の一時ファイルを作成できません。"; return false; }
-  output.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(bytes.size())); output.close();
+  output.write(content,static_cast<std::streamsize>(sizeof(content)-1)); output.close();
   if(!output) { DeleteFileW(temporary.c_str()); error=L".gitignore を保存できません。"; return false; }
   if(!MoveFileExW(temporary.c_str(),destination.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) { DeleteFileW(temporary.c_str()); error=L".gitignore を作業フォルダーへ配置できません。\n"+LastError(); return false; }
   return true;
