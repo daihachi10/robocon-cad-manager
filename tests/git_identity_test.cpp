@@ -5,6 +5,10 @@
 int wmain(int argc,wchar_t** argv){
  if(argc!=3)return 1;
  try{
+  const auto transferProgress=rc::ParseGitTransferProgress(L"remote: Receiving objects: 42% (21/50), 1.00 MiB");
+  if(!transferProgress||transferProgress->first!=21||transferProgress->second!=50)throw std::runtime_error("git transfer progress was not parsed");
+  const auto lfsProgress=rc::ParseGitTransferProgress(L"Receiving objects: 100% (50/50)\rDownloading LFS objects: 25% (1/4)");
+  if(!lfsProgress||lfsProgress->first!=1||lfsProgress->second!=4)throw std::runtime_error("latest LFS progress was not selected");
   const auto root=std::filesystem::path(argv[2])/L"identity-regression";
   const auto work=root/L"既存 フォルダ",remote=root/L"remote.git",global=root/L"isolated-global.config";
   std::filesystem::create_directories(work);std::filesystem::create_directories(remote);
@@ -45,6 +49,10 @@ int wmain(int argc,wchar_t** argv){
   std::ofstream(work/L"追加.txt")<<"second";
   require(git.CommitPush(repo,{L"追加.txt"},L"repair missing local configuration").exitCode==0,"identity was not restored before sending");
   require(run(work,{L"log",L"-1",L"--format=%an <%ae>"})==L"変更 後の氏名 <changed@example.invalid>","global user overrode application identity");
+  std::filesystem::create_directories(work/L"機構"/L"部品");std::ofstream(work/L"機構"/L"部品"/L"追加.SLDPRT")<<"cad";
+  require(git.CommitPush(repo,{L"機構/部品/追加.SLDPRT"},L"フォルダー内の部品を追加").exitCode==0,"nested file commit failed");
+  const auto latest=git.LatestCommits(repo,{L"機構/部品/追加.SLDPRT",L"機構/部品",L"機構"});
+  for(const auto& path:{L"機構/部品/追加.SLDPRT",L"機構/部品",L"機構"})require(latest.contains(path)&&latest.at(path).message==L"フォルダー内の部品を追加","folder latest commit was not aggregated");
   require(run(work,{L"config",L"--file",global.wstring(),L"--get",L"user.name"})==L"Other global user","global user was modified");
   const auto before=run(work,{L"rev-parse",L"HEAD"});repo.userName=L"  ";
   const auto invalid=git.CommitPush(repo,{L"追加.txt"},L"must not commit");

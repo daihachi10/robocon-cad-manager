@@ -7,6 +7,14 @@ std::vector<LockInfo> ParseLocks(const std::wstring& raw,const Repository& repo,
 bool HasLine(const std::wstring& all,const std::wstring& line){std::wistringstream s(all);for(std::wstring value;std::getline(s,value);)if(Trim(value)==line)return true;return false;}
 bool IsMainRef(const std::wstring& branch){return branch==L"main"||branch==L"origin/main"||branch==L"refs/heads/main"||branch==L"refs/remotes/origin/main";}
 }
+std::optional<std::pair<int,int>> ParseGitTransferProgress(const std::wstring& output){
+ size_t start=std::wstring::npos;
+ for(const auto marker:{L"Updating files:",L"Receiving objects:",L"Downloading LFS objects:"}){const auto found=output.rfind(marker);if(found!=std::wstring::npos&&(start==std::wstring::npos||found>start))start=found;}
+ if(start==std::wstring::npos)return{};
+ const auto open=output.find(L'(',start),slash=output.find(L'/',open==std::wstring::npos?start:open+1),close=output.find(L')',slash==std::wstring::npos?start:slash+1);
+ if(open==std::wstring::npos||slash==std::wstring::npos||close==std::wstring::npos)return{};
+ try{const int completed=std::stoi(output.substr(open+1,slash-open-1)),total=std::stoi(output.substr(slash+1,close-slash-1));if(completed<0||total<=0||completed>total)return{};return std::pair{completed,total};}catch(...){return{};}
+}
 GitClient::GitClient(std::filesystem::path executable):exe_(executable.empty()?FindGit():std::move(executable)){} bool GitClient::Available()const{return std::filesystem::exists(exe_);} ProcessResult GitClient::Run(const std::filesystem::path&r,const std::vector<std::wstring>&a)const{return RunProcess(exe_,a,r);}
 void GitClient::NormalizeGithubRemote(const Repository&r)const{if(r.folder.empty()||!std::filesystem::exists(r.folder))return;auto current=Run(r.folder,{L"remote",L"get-url",L"origin"});if(current.exitCode)return;auto url=Trim(current.output);if(url.starts_with(L"http://github.com/")){url.replace(0,5,L"https");Run(r.folder,{L"remote",L"set-url",L"origin",url});}}
 ProcessResult GitClient::Configure(const Repository&r)const{
@@ -21,7 +29,7 @@ ProcessResult GitClient::Configure(const Repository&r)const{
   return{1,{},L"Gitに保存した氏名・メールアドレスを確認できません。設定を保存し直してください。"};
  return{};
 }
-ProcessResult GitClient::Clone(const Repository&r)const{auto url=r.remote;if(url.starts_with(L"http://github.com/"))url.replace(0,5,L"https");return Run({}, {L"clone",L"--recurse-submodules",url,r.folder});} std::wstring GitClient::Branch(const Repository&r)const{auto x=Run(r.folder,{L"branch",L"--show-current"});return x.exitCode?L"":Trim(x.output);} ProcessResult GitClient::Pull(const Repository&r)const{NormalizeGithubRemote(r);const auto branch=Branch(r);if(!IsMainRef(branch))return{1,{},L"現在の作業場所がmainまたはorigin/mainではありません。"};return Run(r.folder,{L"pull",L"--ff-only",L"origin",L"main"});} ProcessResult GitClient::Push(const Repository&r)const{NormalizeGithubRemote(r);const auto branch=Branch(r);if(!IsMainRef(branch))return{1,{},L"現在の作業場所がmainまたはorigin/mainではありません。"};if(branch==L"origin/main"||branch==L"refs/remotes/origin/main")return Run(r.folder,{L"push",L"origin",L"HEAD:main"});return Run(r.folder,{L"push",L"origin",L"main"});}
+ProcessResult GitClient::Clone(const Repository&r)const{auto url=r.remote;if(url.starts_with(L"http://github.com/"))url.replace(0,5,L"https");return Run({}, {L"clone",L"--recurse-submodules",url,r.folder});} std::wstring GitClient::Branch(const Repository&r)const{auto x=Run(r.folder,{L"branch",L"--show-current"});return x.exitCode?L"":Trim(x.output);} ProcessResult GitClient::Pull(const Repository&r,const GitTransferProgress& progress)const{NormalizeGithubRemote(r);const auto branch=Branch(r);if(!IsMainRef(branch))return{1,{},L"現在の作業場所がmainまたはorigin/mainではありません。"};int previous=-1,previousTotal=-1;return RunProcess(exe_,{L"pull",L"--progress",L"--ff-only",L"origin",L"main"},r.folder,L"",[&](const std::wstring& output){if(!progress)return;const auto value=ParseGitTransferProgress(output);if(!value||value->first==previous&&value->second==previousTotal)return;previous=value->first;previousTotal=value->second;progress(previous,previousTotal);});} ProcessResult GitClient::Push(const Repository&r)const{NormalizeGithubRemote(r);const auto branch=Branch(r);if(!IsMainRef(branch))return{1,{},L"現在の作業場所がmainまたはorigin/mainではありません。"};if(branch==L"origin/main"||branch==L"refs/remotes/origin/main")return Run(r.folder,{L"push",L"origin",L"HEAD:main"});return Run(r.folder,{L"push",L"origin",L"main"});}
 std::vector<GitStatus> GitClient::Status(const Repository&r,std::wstring&e)const{
  e.clear();auto result=Run(r.folder,{L"status",L"--porcelain=v1",L"-z",L"--untracked-files=all"});
  if(result.exitCode){e=L"作業フォルダを読み取れません。設定を確認してください。";return{};}
@@ -37,7 +45,19 @@ std::vector<GitStatus> GitClient::Status(const Repository&r,std::wstring&e)const
  }
  return changes;
 }
-std::map<std::wstring,LastCommit> GitClient::LatestCommits(const Repository&r,const std::vector<std::wstring>&paths)const{std::map<std::wstring,LastCommit> result;if(paths.empty())return result;std::vector<std::wstring> args{L"-c",L"core.quotepath=false",L"log",L"--format=%x1e%an%x1f%s",L"--name-only",L"--"};const std::set<std::wstring> requested(paths.begin(),paths.end());auto log=Run(r.folder,args);if(log.exitCode)return result;size_t start=0;while(start<log.output.size()){auto end=log.output.find(L'\x1e',start);auto record=log.output.substr(start,end==std::wstring::npos?std::wstring::npos:end-start);auto separator=record.find(L'\x1f'),firstLine=record.find(L'\n');if(separator!=std::wstring::npos&&firstLine!=std::wstring::npos&&separator<firstLine){LastCommit c{Trim(record.substr(0,separator)),Trim(record.substr(separator+1,firstLine-separator-1))};std::wistringstream files(record.substr(firstLine+1));for(std::wstring path;std::getline(files,path);){path=Trim(path);if(!path.empty()&&requested.contains(path)&&!result.contains(path))result.emplace(std::move(path),c);}}if(end==std::wstring::npos)break;start=end+1;}return result;}
+std::map<std::wstring,LastCommit> GitClient::LatestCommits(const Repository&r,const std::vector<std::wstring>&paths)const{
+ std::map<std::wstring,LastCommit> result;if(paths.empty())return result;
+ const std::set<std::wstring> requested(paths.begin(),paths.end());auto log=Run(r.folder,{L"-c",L"core.quotepath=false",L"log",L"--format=%x1e%an%x1f%s",L"--name-only",L"--"});if(log.exitCode)return result;
+ size_t start=0;while(start<log.output.size()){
+  const auto end=log.output.find(L'\x1e',start);const auto record=log.output.substr(start,end==std::wstring::npos?std::wstring::npos:end-start);const auto separator=record.find(L'\x1f'),firstLine=record.find(L'\n');
+  if(separator!=std::wstring::npos&&firstLine!=std::wstring::npos&&separator<firstLine){
+   const LastCommit commit{Trim(record.substr(0,separator)),Trim(record.substr(separator+1,firstLine-separator-1))};std::wistringstream files(record.substr(firstLine+1));
+   for(std::wstring path;std::getline(files,path);){path=Trim(path);if(path.empty())continue;if(requested.contains(path)&&!result.contains(path))result.emplace(path,commit);auto parent=std::filesystem::path(path).parent_path();while(!parent.empty()){const auto folder=parent.generic_wstring();if(requested.contains(folder)&&!result.contains(folder))result.emplace(folder,commit);parent=parent.parent_path();}}
+  }
+  if(end==std::wstring::npos)break;start=end+1;
+ }
+ return result;
+}
 std::vector<LockInfo> GitClient::ListLocks(const Repository&r,std::wstring&e)const{NormalizeGithubRemote(r);auto x=Run(r.folder,{L"lfs",L"locks",L"--verify",L"--json"});if(x.exitCode){e=LfsError(x);return{};}return ParseLocks(x.output,r,e);}
 std::optional<LockInfo> GitClient::Lock(const Repository&r,const std::wstring&p,std::wstring&e)const{NormalizeGithubRemote(r);auto x=Run(r.folder,{L"lfs",L"lock",L"--json",L"--",p});if(x.exitCode){if(x.output.find(L"Lock exists")!=std::wstring::npos){std::wstring listError;auto current=ListLocks(r,listError);auto found=std::find_if(current.begin(),current.end(),[&](const LockInfo&lock){return lock.path==p;});if(found!=current.end()){if(found->ours)return*found;e=found->owner.empty()?L"このファイルは他の利用者がロックしています。":L"このファイルは "+found->owner+L" さんがロックしています。";return{};}if(!listError.empty()){e=listError;return{};}}e=LfsError(x);return{};}auto locks=ParseLocks(x.output,r,e);if(locks.empty()){e=L"Git LFSからロック情報を受け取れませんでした。";return{};}locks.front().ours=true;return locks.front();}
 bool GitClient::Unlock(const Repository&r,const LockInfo&l,std::wstring&e)const{NormalizeGithubRemote(r);auto x=Run(r.folder,{L"lfs",L"unlock",L"--id",l.id,L"--json"});if(x.exitCode){e=LfsError(x);return false;}return true;} bool GitClient::IsDirty(const Repository&r,const std::wstring&p)const{auto x=Run(r.folder,{L"status",L"--porcelain=v1",L"--",p});return x.exitCode||!Trim(x.output).empty();}

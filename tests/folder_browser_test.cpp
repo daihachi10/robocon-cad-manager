@@ -47,6 +47,7 @@ struct AppBrowserTest {
   app.CreateBrowserControls();app.cad_=ScanCad(repository);std::wstring error;app.changes_=app.git_.Status(repository,error);Require(error.empty(),"native UI status failed");app.changeChecks_=UpdatedChangeChecks(app.changes_,{});app.Populate();
   Require(SendMessageW(app.filter_,CB_GETCURSEL,0,0)==0&&GetText(app.filter_)==L"SolidWorksファイル","default filter is not SolidWorks files");
   Require(std::none_of(app.browserItems_.begin(),app.browserItems_.end(),[](const auto& item){return item.path==L"README.md";}),"default filter contains a non-SolidWorks file");
+  app.latestCommits_[L"機構 A"]={L"設計 太郎",L"アセンブリを更新"};app.Populate();wchar_t folderLast[256]{};ListView_GetItemText(app.list_,Row(app,L"機構 A"),3,folderLast,256);Require(std::wstring(folderLast)==L"設計 太郎 (アセンブリを更新)","folder latest editor/message was not displayed");
   Require(!IsWindowEnabled(GetDlgItem(app.window_,kBrowseBack)),"back enabled at initial root");
   Select(app,L"機構 A");NMITEMACTIVATE doubleClick{};doubleClick.hdr.hwndFrom=app.list_;doubleClick.hdr.code=NM_DBLCLK;doubleClick.iItem=Row(app,L"機構 A");SendMessageW(app.window_,WM_NOTIFY,0,reinterpret_cast<LPARAM>(&doubleClick));
   Require(app.folderNavigation_.Current()==L"機構 A","double click did not enter folder");

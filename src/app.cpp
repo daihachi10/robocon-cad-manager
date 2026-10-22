@@ -112,7 +112,7 @@ void App::RefreshLocal(){
    changes.erase(std::remove_if(changes.begin(),changes.end(),[](const GitStatus& change){return IsTemporaryCadPath(change.path);}),changes.end());
    if(error.empty()){
     std::set<std::wstring> paths;
-    for(const auto& file:files)if(!file.directory)paths.insert(RelativePath(r,file.path));
+    for(const auto& file:files)paths.insert(RelativePath(r,file.path));
     for(const auto& change:changes)paths.insert(change.path);
     commits=git_.LatestCommits(r,std::vector<std::wstring>(paths.begin(),paths.end()));
    }
