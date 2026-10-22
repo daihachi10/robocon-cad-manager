@@ -1,6 +1,9 @@
 #include "cad.h"
 #include "process_runner.h"
-namespace rc { namespace { bool Managed(const std::wstring&p){for(auto&s:{L".sldprt",L".sldasm",L".slddrw",L".stl",L".step",L".stp",L".dxf",L".dwg",L".pdf"})if(IEndsWith(p,s))return true;return false;} }
+namespace rc { namespace {
+bool SolidWorksFile(const std::wstring&p){for(auto&s:{L".sldprt",L".sldasm",L".slddrw"})if(IEndsWith(p,s))return true;return false;}
+bool Managed(const std::wstring&p){for(auto&s:{L".sldprt",L".sldasm",L".slddrw",L".stl",L".step",L".stp",L".dxf",L".dwg",L".pdf"})if(IEndsWith(p,s))return true;return false;}
+}
 bool MakeCadWritable(const std::filesystem::path& path,std::wstring& error) {
  const auto attributes=GetFileAttributesW(path.c_str());
  if(attributes==INVALID_FILE_ATTRIBUTES){error=L"ファイルの属性を確認できません。\n"+LastError();return false;}
@@ -25,6 +28,7 @@ std::vector<CadFile> ScanCad(const Repository&r){
   if(excluded){if(directory)it.disable_recursion_pending();}
   else if(directory){CadFile entry;entry.path=path;entry.directory=true;files.push_back(std::move(entry));}
   else if(it->is_regular_file(error)&&!error){
+   if(!r.lfsLockEnabled&&SolidWorksFile(path.wstring())){std::wstring writableError;MakeCadWritable(path,writableError);}
    CadFile file;file.path=path;file.bytes=it->file_size(error);if(error){file.bytes=0;error.clear();}
    if(Managed(path.wstring())){
     file.suspiciousName=name.find(L"最終")!=std::wstring::npos;
