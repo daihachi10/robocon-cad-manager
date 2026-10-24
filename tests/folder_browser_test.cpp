@@ -71,6 +71,11 @@ struct AppBrowserTest {
   }
   Require(app.BeginOperation(L"テスト処理",L"処理中です。",L"git test"),"operation dialog did not open");Require(!IsWindowEnabled(app.window_),"operation dialog did not disable owner");app.operation_->Step(L"1/3 追加中",L"git add",1,3,L"> git add\r\n結果: 正常\r\n");Require(SendMessageW(app.operation_->progress_,PBM_GETPOS,0,0)==1,"operation progress did not advance");Require(GetText(app.operation_->command_)==L"git add","operation command did not update");Require(GetText(app.operation_->output_).find(L"結果: 正常")!=std::wstring::npos,"operation log was not displayed");app.CompleteOperation();Require(IsWindowEnabled(app.window_),"completed operation did not restore owner");
   Require(app.BeginOperation(L"テスト処理",L"処理中です。",L"git test"),"second operation dialog did not open");app.operation_->Step(L"1/3 追加完了",L"git add",1,3,L"> git add\r\n結果: 正常\r\n");app.FailOperation(L"失敗しました。",L"git commit",L"> git commit\r\n終了コード: 1\r\nテストエラー");Require(!IsWindowEnabled(app.window_),"failed operation did not remain modal");const auto failureLog=GetText(app.operation_->output_);Require(failureLog.find(L"git add")!=std::wstring::npos&&failureLog.find(L"git commit")!=std::wstring::npos,"failure replaced earlier command logs");app.operation_->Close();Require(IsWindowEnabled(app.window_),"closing failed operation did not restore owner");
+  Require(app.BeginOperation(L"例外テスト",L"処理中です。",L"test"),"exception operation did not open");
+  app.Background([]{throw std::runtime_error("background regression failure");});
+  PumpUntil(app,[&]{return app.operation_->closable_;});
+  Require(GetText(app.operation_->output_).find(L"background regression failure")!=std::wstring::npos,"background error log missing");
+  SendMessageW(app.operation_->window_,WM_CLOSE,0,0);Require(IsWindowEnabled(app.window_)&&!app.operation_->Visible(),"exception left UI blocked");
   SetWindowPos(app.window_,nullptr,0,0,1120,700,SWP_NOZORDER|SWP_NOACTIVATE);app.UpdateFonts(96);app.NavigateFolder(L"機構 A/パーツ");Snapshot(app.window_,output/L"folder-browser-inside.bmp");app.NavigateFolder(L"");
   // Exercise the actual recursive Windows file notification and refresh path, with no polling in the app.
   app.StartLocalWatcher();app.RefreshLocal();PumpUntil(app,[&]{return !app.localRefreshRunning_;});

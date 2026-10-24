@@ -4,6 +4,7 @@ namespace rc {
 namespace {
 constexpr WORD kOpen=106,kFilter=109;
 std::wstring ChangeDescription(const std::wstring& code){
+ if(code.find(L'U')!=std::wstring::npos||code==L"AA"||code==L"DD")return L"競合（要確認）";
  if(code==L"??")return L"新しいファイル";
  if(code.find(L'D')!=std::wstring::npos)return L"削除";
  if(code.find(L'R')!=std::wstring::npos)return L"名前変更";

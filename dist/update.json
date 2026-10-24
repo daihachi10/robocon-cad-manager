@@ -1,7 +1,7 @@
 {
-  "version": "0.1.9",
+  "version": "0.1.21",
   "installerUrl": "https://github.com/daihachi10/robocon-cad-manager/releases/latest/download/RoboconCadManagerSetup.exe",
-  "sha256": "1149e12ab032d41ff81f411e041c2adfba56ce0788b7312101bc661bf9b50bb5",
-  "size": 68013046,
-  "notes": "高専ロボコンCAD管理アプリ 0.1.9 — フォルダ表示・戻る進む操作・フォルダ内変更の自動選択を追加"
+  "sha256": "6a8a0d1eafe5d17ed10be8d705af1a401992a4cf98dbef829a20c082037a4375",
+  "size": 68062820,
+  "notes": "高専ロボコンCAD管理アプリ 0.1.21 — 更新・送信の競合しない変更を自動で取り込み、未完了の取り込みをエディターなしで完了できるようにしました"
 }

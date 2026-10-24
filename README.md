@@ -4,6 +4,8 @@ Windows 11 x64 用の軽量な Win32 ネイティブアプリです。共有用�
 
 ## 利用者向けマニュアル
 
+更新・送信が途中で止まる場合やVimのマージメッセージ警告が出た場合は、[取り込みの復旧手順](docs/merge-recovery-ja.md) を参照してください。
+
 GitHubアカウントの作成からアプリの初回設定、リポジトリの複製、LFS設定、変更の送信までを説明した初心者向け手順は [docs/setup-manual-ja.md](docs/setup-manual-ja.md) を参照してください。
 
 ## ビルド
