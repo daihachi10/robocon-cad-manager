@@ -61,7 +61,9 @@ ProcessResult GitClient::Pull(const Repository& r,const GitTransferProgress& pro
  });
  AppendResult(result,fetched);if(steps)steps(L"最新の変更の取得結果",fetched.command,1,2,&fetched);if(fetched.exitCode)return result;
  auto upToDate=Run(r.folder,{L"merge-base",L"--is-ancestor",L"FETCH_HEAD",L"HEAD"});
- if(upToDate.exitCode==0)return result;
+ if(upToDate.exitCode==0){
+  auto lfs=LfsPull(r,{},progress,steps);AppendResult(result,lfs);return result;
+ }
  if(upToDate.exitCode!=1){AppendResult(result,upToDate);return result;}
  auto fastForward=Run(r.folder,{L"merge-base",L"--is-ancestor",L"HEAD",L"FETCH_HEAD"});
  if(fastForward.exitCode>1){AppendResult(result,fastForward);return result;}
@@ -85,7 +87,8 @@ ProcessResult GitClient::Pull(const Repository& r,const GitTransferProgress& pro
   else if(state.merging)merged.error=std::wstring(L"取り込みの確定が途中で止まりました。\n")+recovery;
   else if(merged.output.find(L"would be overwritten")!=std::wstring::npos)merged.error=L"未保存のファイルと取得する変更が重なっています。変更を保存するか作業フォルダー外へ退避してから、再実行してください。現在の変更は破棄していません。";
  }
- AppendResult(result,merged);if(steps)steps(L"変更の取り込み結果",merged.command,2,2,&merged);return result;
+ AppendResult(result,merged);if(steps)steps(L"変更の取り込み結果",merged.command,2,2,&merged);if(merged.exitCode)return result;
+ auto lfs=LfsPull(r,{},progress,steps);AppendResult(result,lfs);return result;
 }
 
 ProcessResult GitClient::Push(const Repository& r,const GitStepCallback& steps)const{

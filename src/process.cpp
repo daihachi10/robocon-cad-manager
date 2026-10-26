@@ -15,13 +15,16 @@ std::wstring ActualCommand(const std::filesystem::path& exe,const std::vector<st
 }
 // Only the child Git process receives these overrides. Never change the UI process's
 // environment: other background jobs and Credential Manager can run concurrently.
-std::vector<wchar_t> GitEnvironment(const std::filesystem::path& exe){
+std::vector<wchar_t> GitEnvironment(const std::filesystem::path& exe,bool allowLfsSmudge){
  if(!IEndsWith(exe.filename().wstring(),L"git.exe"))return{};
  std::vector<std::wstring> entries;
- const std::vector<std::wstring> overrides{L"GIT_EDITOR=true",L"GIT_MERGE_AUTOEDIT=no",L"GIT_TERMINAL_PROMPT=0",L"LC_ALL=C"};
+ // Always obtain LFS objects explicitly after checkout. This avoids a partial clone
+ // being mistaken for a usable CAD file when a user's Git configuration skips smudging.
+ std::vector<std::wstring> overrides{L"GIT_EDITOR=true",L"GIT_MERGE_AUTOEDIT=no",L"GIT_TERMINAL_PROMPT=0",L"GIT_LFS_FORCE_PROGRESS=1",L"LC_ALL=C"};
+ if(!allowLfsSmudge)overrides.push_back(L"GIT_LFS_SKIP_SMUDGE=1");
  if(auto block=GetEnvironmentStringsW()){
   for(auto p=block;*p;p+=wcslen(p)+1){
-   std::wstring entry=p;bool replaced=false;
+   std::wstring entry=p;bool replaced=allowLfsSmudge&&entry.size()>=20&&CompareStringOrdinal(entry.data(),20,L"GIT_LFS_SKIP_SMUDGE=",20,TRUE)==CSTR_EQUAL;
    for(const auto& value:overrides){const auto length=value.find(L'=')+1;if(entry.size()>=length&&CompareStringOrdinal(entry.data(),static_cast<int>(length),value.data(),static_cast<int>(length),TRUE)==CSTR_EQUAL)replaced=true;}
    if(!replaced)entries.push_back(std::move(entry));
   }
@@ -33,10 +36,10 @@ std::vector<wchar_t> GitEnvironment(const std::filesystem::path& exe){
 }
 }
 std::wstring ProcessDisplayCommand(const std::filesystem::path& exe,const std::vector<std::wstring>& args){return DisplayCommand(exe,args);}
-ProcessResult RunProcess(const std::filesystem::path&exe,const std::vector<std::wstring>&args,const std::filesystem::path&cwd,const std::wstring&input,const ProcessOutputCallback& outputCallback){
+ProcessResult RunProcess(const std::filesystem::path&exe,const std::vector<std::wstring>&args,const std::filesystem::path&cwd,const std::wstring&input,const ProcessOutputCallback& outputCallback,bool allowLfsSmudge){
  ProcessResult r;r.exitCode=MAXDWORD;r.command=DisplayCommand(exe,args);const auto cmd=ActualCommand(exe,args);
  SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE};HANDLE outRead{},outWrite{};if(!CreatePipe(&outRead,&outWrite,&sa,0)){r.error=LastError();return r;}SetHandleInformation(outRead,HANDLE_FLAG_INHERIT,0);
- auto environment=GitEnvironment(exe);
+ auto environment=GitEnvironment(exe,allowLfsSmudge);
  HANDLE in=CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&sa,OPEN_EXISTING,0,nullptr);
  STARTUPINFOW si{sizeof(si)};si.dwFlags=STARTF_USESHOWWINDOW|STARTF_USESTDHANDLES;si.wShowWindow=SW_HIDE;si.hStdOutput=outWrite;si.hStdError=outWrite;si.hStdInput=in;
  PROCESS_INFORMATION pi{};std::vector<wchar_t> mutableCmd(cmd.begin(),cmd.end());mutableCmd.push_back(0);
@@ -46,11 +49,11 @@ ProcessResult RunProcess(const std::filesystem::path&exe,const std::vector<std::
  std::string bytes;char b[4096];DWORD n;while(ReadFile(outRead,b,sizeof(b),&n,nullptr)&&n){bytes.append(b,n);if(outputCallback){const auto current=Wide(bytes);if(!current.empty())outputCallback(current);}}
  CloseHandle(outRead);WaitForSingleObject(pi.hProcess,INFINITE);GetExitCodeProcess(pi.hProcess,&r.exitCode);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);r.output=Wide(bytes);(void)input;return r;
 }
-ProcessResult RunProcessToFile(const std::filesystem::path&exe,const std::vector<std::wstring>&args,const std::filesystem::path&cwd,const std::filesystem::path&outputFile){
+ProcessResult RunProcessToFile(const std::filesystem::path&exe,const std::vector<std::wstring>&args,const std::filesystem::path&cwd,const std::filesystem::path&outputFile,bool allowLfsSmudge){
  ProcessResult r;r.exitCode=MAXDWORD;r.command=DisplayCommand(exe,args);const auto cmd=ActualCommand(exe,args);
  SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE};HANDLE output=CreateFileW(outputFile.c_str(),GENERIC_WRITE,FILE_SHARE_READ,&sa,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);if(output==INVALID_HANDLE_VALUE){r.error=LastError();return r;}
  HANDLE errRead{},errWrite{};if(!CreatePipe(&errRead,&errWrite,&sa,0)){CloseHandle(output);r.error=LastError();return r;}SetHandleInformation(errRead,HANDLE_FLAG_INHERIT,0);
- auto environment=GitEnvironment(exe);HANDLE in=CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&sa,OPEN_EXISTING,0,nullptr);
+ auto environment=GitEnvironment(exe,allowLfsSmudge);HANDLE in=CreateFileW(L"NUL",GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&sa,OPEN_EXISTING,0,nullptr);
  STARTUPINFOW si{sizeof(si)};si.dwFlags=STARTF_USESHOWWINDOW|STARTF_USESTDHANDLES;si.wShowWindow=SW_HIDE;si.hStdOutput=output;si.hStdError=errWrite;si.hStdInput=in;
  PROCESS_INFORMATION pi{};std::vector<wchar_t> mutableCmd(cmd.begin(),cmd.end());mutableCmd.push_back(0);
  const bool started=CreateProcessW(exe.c_str(),mutableCmd.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW|CREATE_UNICODE_ENVIRONMENT,environment.empty()?nullptr:environment.data(),cwd.empty()?nullptr:cwd.c_str(),&si,&pi)!=FALSE;

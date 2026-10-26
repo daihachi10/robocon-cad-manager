@@ -131,7 +131,9 @@ void App::Populate(){
    else if(locked==locks_.end())editing=L"-";
    else if(locked->second.ours)editing=opened_.contains(entry.path)?L"自分が編集中":(pendingUnlock_.contains(entry.path)?L"自分のロック（送信待ち）":L"自分のロック（閉じています）");
    else editing=locked->second.owner.empty()?L"他の利用者が編集中":L"["+locked->second.owner+L"] が編集中";
-   size=entry.local?std::to_wstring(entry.bytes/1024)+L" KB":L"-";
+   // An LFS pointer is only a tiny text file. Do not misleadingly show it as a
+   // 0 KB CAD file: the remote object has not been downloaded yet.
+   size=!entry.local?L"-":(entry.lfsPointer?L"LFS未取得":std::to_wstring(entry.bytes/1024)+L" KB");
    if(entry.local)localFiles_[entry.path]=std::filesystem::path(Current()->folder)/std::filesystem::path(entry.path);
   }
   ListView_SetItemText(list_,item.iItem,1,const_cast<LPWSTR>(state.c_str()));ListView_SetItemText(list_,item.iItem,2,const_cast<LPWSTR>(editing.c_str()));

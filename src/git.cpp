@@ -9,11 +9,16 @@ bool IsMainRef(const std::wstring& branch){return branch==L"main"||branch==L"ori
 }
 std::optional<std::pair<int,int>> ParseGitTransferProgress(const std::wstring& output){
  size_t start=std::wstring::npos;
- for(const auto marker:{L"Updating files:",L"Receiving objects:",L"Downloading LFS objects:"}){const auto found=output.rfind(marker);if(found!=std::wstring::npos&&(start==std::wstring::npos||found>start))start=found;}
+ for(const auto marker:{L"Updating files:",L"Receiving objects:",L"Downloading LFS objects:",L"download ",L"checkout "}){const auto found=output.rfind(marker);if(found!=std::wstring::npos&&(start==std::wstring::npos||found>start))start=found;}
  if(start==std::wstring::npos)return{};
  const auto open=output.find(L'(',start),slash=output.find(L'/',open==std::wstring::npos?start:open+1),close=output.find(L')',slash==std::wstring::npos?start:slash+1);
- if(open==std::wstring::npos||slash==std::wstring::npos||close==std::wstring::npos)return{};
- try{const int completed=std::stoi(output.substr(open+1,slash-open-1)),total=std::stoi(output.substr(slash+1,close-slash-1));if(completed<0||total<=0||completed>total)return{};return std::pair{completed,total};}catch(...){return{};}
+ try{
+  if(open!=std::wstring::npos&&slash!=std::wstring::npos&&close!=std::wstring::npos){const int completed=std::stoi(output.substr(open+1,slash-open-1)),total=std::stoi(output.substr(slash+1,close-slash-1));if(completed>=0&&total>0&&completed<=total)return std::pair{completed,total};}
+  // Git LFS forced progress: "download 2/5 1048576/... path".
+  const auto first=output.find_first_of(L"0123456789",start);const auto plainSlash=first==std::wstring::npos?std::wstring::npos:output.find(L'/',first);
+  if(first!=std::wstring::npos&&plainSlash!=std::wstring::npos){const auto next=output.find_first_not_of(L"0123456789",plainSlash+1);const int completed=std::stoi(output.substr(first,plainSlash-first)),total=std::stoi(output.substr(plainSlash+1,next-plainSlash-1));if(completed>=0&&total>0&&completed<=total)return std::pair{completed,total};}
+ }catch(...){ }
+ return{};
 }
 GitClient::GitClient(std::filesystem::path executable):exe_(executable.empty()?FindGit():std::move(executable)){} bool GitClient::Available()const{return std::filesystem::exists(exe_);} ProcessResult GitClient::Run(const std::filesystem::path&r,const std::vector<std::wstring>&a)const{return RunProcess(exe_,a,r);}
 void GitClient::NormalizeGithubRemote(const Repository&r)const{if(r.folder.empty()||!std::filesystem::exists(r.folder))return;auto current=Run(r.folder,{L"remote",L"get-url",L"origin"});if(current.exitCode)return;auto url=Trim(current.output);if(url.starts_with(L"http://github.com/")){url.replace(0,5,L"https");Run(r.folder,{L"remote",L"set-url",L"origin",url});}}
@@ -29,7 +34,45 @@ ProcessResult GitClient::Configure(const Repository&r)const{
   return{1,{},L"Gitに保存した氏名・メールアドレスを確認できません。設定を保存し直してください。"};
  return{};
 }
-ProcessResult GitClient::Clone(const Repository&r)const{auto url=r.remote;if(url.starts_with(L"http://github.com/"))url.replace(0,5,L"https");return Run({}, {L"clone",L"--recurse-submodules",url,r.folder});}
+ProcessResult GitClient::Clone(const Repository&r,const GitStepCallback& steps)const{
+ auto url=r.remote;if(url.starts_with(L"http://github.com/"))url.replace(0,5,L"https");
+ const std::vector<std::wstring> clone{L"clone",L"--recurse-submodules",url,r.folder};
+ if(steps)steps(L"1/3 リポジトリを複製しています。",ProcessDisplayCommand(exe_,clone),0,3,nullptr);
+ auto result=Run({},clone);if(steps)steps(L"1/3 リポジトリの複製結果",result.command,1,3,&result);if(result.exitCode)return result;
+ return LfsPull(r,{}, {},steps);
+}
+
+ProcessResult GitClient::LfsPull(const Repository&r,const std::vector<std::wstring>& paths,const GitTransferProgress& progress,const GitStepCallback& steps)const{
+ NormalizeGithubRemote(r);
+ const std::vector<std::wstring> install{L"lfs",L"install",L"--local"};
+ if(steps)steps(L"大容量ファイル用のGit設定を確認しています。",ProcessDisplayCommand(exe_,install),0,paths.empty()?3:1,nullptr);
+ auto installed=Run(r.folder,install);
+ if(installed.exitCode){installed.error=LfsError(installed);if(steps)steps(L"大容量ファイル用のGit設定に失敗しました。",installed.command,0,paths.empty()?3:1,&installed);return installed;}
+ std::wstring include;
+ for(const auto& path:paths){if(!include.empty())include+=L",";include+=path;}
+ // Empty include/exclude overrides per-user LFS filters. A CAD clone must contain all
+ // LFS data tracked by its checked-out revision, not a 0 KB pointer.
+ std::vector<std::wstring> command{L"lfs",L"pull",L"--include="+include,L"--exclude="};
+ if(steps)steps(paths.empty()?L"2/3 大容量ファイルの本体を取得しています。":L"大容量ファイルの本体を取得しています。",ProcessDisplayCommand(exe_,command),paths.empty()?1:0,paths.empty()?3:1,nullptr);
+ int previous=-1,previousTotal=-1;
+ auto result=RunProcess(exe_,command,r.folder,L"",[&](const std::wstring& output){
+  if(!progress)return;const auto value=ParseGitTransferProgress(output);if(!value||(value->first==previous&&value->second==previousTotal))return;
+  previous=value->first;previousTotal=value->second;progress(previous,value->second);
+ },true);
+ result.output=L"> "+installed.command+L"\r\n"+installed.output+L"\r\n"+result.output;
+ result.command=installed.command+L"\r\n"+result.command;
+ if(result.exitCode){result.error=LfsError(result);if(steps)steps(L"大容量ファイルの取得に失敗しました。",result.command,paths.empty()?2:1,paths.empty()?3:1,&result);return result;}
+ // `pull` fetches LFS objects. Explicit checkout makes the working file real even
+ // when clone/checkout had deliberately skipped the LFS smudge filter.
+ const std::vector<std::wstring> checkout{L"lfs",L"checkout"};
+ if(steps)steps(L"取得した大容量ファイルを展開しています。",ProcessDisplayCommand(exe_,checkout),paths.empty()?2:0,paths.empty()?3:1,nullptr);
+ auto checked=RunProcess(exe_,checkout,r.folder,L"",{},true);
+ checked.output=L"> "+result.command+L"\r\n"+result.output+L"\r\n"+checked.output;
+ checked.command=result.command+L"\r\n"+checked.command;
+ if(checked.exitCode)checked.error=LfsError(checked);
+ if(steps)steps(checked.exitCode?L"大容量ファイルの展開に失敗しました。":L"大容量ファイルの取得が完了しました。",checked.command,paths.empty()?3:1,paths.empty()?3:1,&checked);
+ return checked;
+}
 std::wstring GitClient::Branch(const Repository&r)const{auto x=Run(r.folder,{L"branch",L"--show-current"});return x.exitCode?L"":Trim(x.output);}
 std::vector<GitStatus> GitClient::Status(const Repository&r,std::wstring&e)const{
  e.clear();auto result=Run(r.folder,{L"status",L"--porcelain=v1",L"-z",L"--untracked-files=all"});
@@ -85,7 +128,7 @@ bool GitClient::RestoreRevision(const Repository&r,const GitRevision&revision,co
  error.clear();const auto target=std::filesystem::path(r.folder)/std::filesystem::path(destination);std::error_code fsError;std::filesystem::create_directories(target.parent_path(),fsError);if(fsError){error=L"復元先フォルダーを作成できません。";return false;}
  if(!revision.exists){SetFileAttributesW(target.c_str(),FILE_ATTRIBUTE_NORMAL);if(!DeleteFileW(target.c_str())&&GetLastError()!=ERROR_FILE_NOT_FOUND){error=L"選択した時点の削除状態へ戻せません。";return false;}return true;}
  wchar_t tempName[MAX_PATH]{};if(!GetTempFileNameW(target.parent_path().c_str(),L"rc",0,tempName)){error=L"復元用の一時ファイルを作成できません。";return false;}const std::filesystem::path temporary=tempName;
- const auto object=revision.sha+L":"+revision.path;const auto result=RunProcessToFile(exe_,{L"-c",L"core.quotepath=false",L"cat-file",L"--filters",L"--path="+destination,object},r.folder,temporary);if(result.exitCode){DeleteFileW(temporary.c_str());error=result.error.empty()?L"選択したコミットのファイル本体を取得できません。":Trim(result.error);return false;}
+ const auto object=revision.sha+L":"+revision.path;const auto result=RunProcessToFile(exe_,{L"-c",L"core.quotepath=false",L"cat-file",L"--filters",L"--path="+destination,object},r.folder,temporary,true);if(result.exitCode){DeleteFileW(temporary.c_str());error=result.error.empty()?L"選択したコミットのファイル本体を取得できません。":Trim(result.error);return false;}
  SetFileAttributesW(target.c_str(),FILE_ATTRIBUTE_NORMAL);if(!MoveFileExW(temporary.c_str(),target.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){DeleteFileW(temporary.c_str());error=L"復元したファイルを置き換えられません。";return false;}return true;
 }
 }

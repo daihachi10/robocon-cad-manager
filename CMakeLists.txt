@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(RoboconCadManager VERSION 0.1.21 LANGUAGES CXX RC)
+project(RoboconCadManager VERSION 0.1.22 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 configure_file(src/app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/app.rc" @ONLY)
 set(RC_APP_SOURCES
   src/app.cpp src/app_browser.cpp src/file_browser.cpp src/config.cpp src/process.cpp src/git.cpp
-  src/git_sync.cpp src/app_recovery.cpp src/json.cpp src/cad.cpp src/ui.cpp src/app_actions.cpp src/solidworks_monitor.cpp src/update.cpp src/file_transfer.cpp)
+  src/git_sync.cpp src/app_recovery.cpp src/json.cpp src/cad.cpp src/ui.cpp src/app_actions.cpp src/app_lfs.cpp src/solidworks_monitor.cpp src/update.cpp src/file_transfer.cpp)
 add_executable(RoboconCadManager WIN32 "${CMAKE_CURRENT_BINARY_DIR}/app.rc" src/main.cpp ${RC_APP_SOURCES})
 target_include_directories(RoboconCadManager PRIVATE src)
 target_compile_definitions(RoboconCadManager PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX RC_VERSION=L\"${PROJECT_VERSION}\")
@@ -64,5 +64,14 @@ target_compile_definitions(GitRecoveryTest PRIVATE UNICODE _UNICODE WIN32_LEAN_A
 if(MSVC)
   target_compile_options(GitRecoveryTest PRIVATE /W4 /permissive- /utf-8)
   set_property(TARGET GitRecoveryTest PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+add_executable(LfsMaterializationTest EXCLUDE_FROM_ALL tests/lfs_materialization_test.cpp src/git.cpp src/git_sync.cpp src/process.cpp src/json.cpp src/cad.cpp)
+target_include_directories(LfsMaterializationTest PRIVATE src)
+target_compile_definitions(LfsMaterializationTest PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(LfsMaterializationTest PRIVATE shell32 shlwapi)
+if(MSVC)
+  target_compile_options(LfsMaterializationTest PRIVATE /W4 /permissive- /utf-8)
+  set_property(TARGET LfsMaterializationTest PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
