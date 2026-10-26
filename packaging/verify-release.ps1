@@ -61,7 +61,7 @@ if ($TestInstaller) {
   Set-Content -LiteralPath (Join-Path $repo 'sample.sldprt') -Value 'sample content' -NoNewline
   & $git -C $repo add -- .gitattributes sample.sldprt
   if ($LASTEXITCODE -ne 0) { throw '同梱Git LFSでCADファイルを登録できません。' }
-  $pointer = & $git -C $repo show ':sample.sldprt'
+  $pointer = (& $git -C $repo show ':sample.sldprt') -join "`n"
   if ($LASTEXITCODE -ne 0 -or $pointer -notmatch 'version https://git-lfs.github.com/spec/v1') {
     throw '同梱Git LFSがLFSポインターを生成できません。'
   }
