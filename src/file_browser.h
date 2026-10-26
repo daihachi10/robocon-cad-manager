@@ -16,6 +16,9 @@ bool IsTemporaryCadPath(const std::wstring& path);
 bool MatchesCadFilter(const std::wstring& path,int mode);
 std::vector<BrowserItem> BuildFolderItems(const Repository& repository,const std::wstring& folder,
  const std::vector<CadFile>& files,const std::vector<GitStatus>& changes,int filterMode);
+// A Git LFS pointer is not a user edit.  Repositories missing .gitattributes can
+// otherwise report every unfetched pointer as modified after one file is fetched.
+void ExcludeUnfetchedLfsPointerChanges(const Repository& repository,const std::vector<CadFile>& files,std::vector<GitStatus>& changes);
 std::map<std::wstring,bool> UpdatedChangeChecks(const std::vector<GitStatus>& changes,const std::map<std::wstring,bool>& previous);
 
 class FolderNavigation {

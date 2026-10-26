@@ -61,6 +61,12 @@ std::vector<BrowserItem> BuildFolderItems(const Repository& repository,const std
  return result;
 }
 
+void ExcludeUnfetchedLfsPointerChanges(const Repository& repository,const std::vector<CadFile>& files,std::vector<GitStatus>& changes){
+ std::set<std::wstring> pointers;
+ for(const auto& file:files)if(file.lfsPointer){std::wstring path;if(NormalizeBrowserPath(file.path.lexically_relative(repository.folder).generic_wstring(),path))pointers.insert(std::move(path));}
+ changes.erase(std::remove_if(changes.begin(),changes.end(),[&](const GitStatus& change){std::wstring path;return NormalizeBrowserPath(change.path,path)&&pointers.contains(path);}),changes.end());
+}
+
 std::map<std::wstring,bool> UpdatedChangeChecks(const std::vector<GitStatus>& changes,const std::map<std::wstring,bool>& previous){
  std::map<std::wstring,bool> result;
  for(const auto& change:changes)if(!IsTemporaryCadPath(change.path)){

@@ -121,7 +121,7 @@ void App::Populate(){
   item.iImage=entry.directory?2:(!lockingEnabled?-1:(!locksKnown_?-1:(locked==locks_.end()?0:1)));ListView_InsertItem(list_,&item);
   auto state=entry.directory?(entry.changedPaths.empty()?std::wstring(L"フォルダ"):L"変更あり（"+std::to_wstring(entry.changedPaths.size())+L"件）"):
    (entry.changeCode.empty()?std::wstring(L"変更なし"):ChangeDescription(entry.changeCode));
-  if(entry.lfsPointer)state+=L" / 大容量ファイルの本体未取得";
+  if(entry.lfsPointer)state=L"大容量ファイルの本体未取得";
   if(entry.suspiciousName)state+=L" / 版名を見直してください";
   std::wstring editing,last,size;
   const auto commit=latestCommits_.find(entry.path);last=commit==latestCommits_.end()?L"未保存":commit->second.author+L" ("+commit->second.message+L")";

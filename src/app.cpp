@@ -110,6 +110,7 @@ void App::RefreshLocal(){
   try{
    files=ScanCad(r);changes=git_.Status(r,error);
    changes.erase(std::remove_if(changes.begin(),changes.end(),[](const GitStatus& change){return IsTemporaryCadPath(change.path);}),changes.end());
+   ExcludeUnfetchedLfsPointerChanges(r,files,changes);
    if(error.empty()){
     std::set<std::wstring> paths;
     for(const auto& file:files)paths.insert(RelativePath(r,file.path));
