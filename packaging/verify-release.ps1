@@ -35,24 +35,34 @@ if ($TestInstaller) {
   $setup = Join-Path $root 'dist\RoboconCadManagerSetup.exe'
   $log = Join-Path $env:RUNNER_TEMP 'RoboconCadManager-setup.log'
   $arguments = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$appDir+'"'),('/LOG="'+$log+'"'))
-  for ($attempt=0;$attempt -lt 2;$attempt++) {
-    $process = Start-Process -FilePath $setup -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
-    if ($process.ExitCode -ne 0) { Get-Content $log -Tail 50; throw "インストール検証に失敗: $($process.ExitCode)" }
-    $git = Join-Path $appDir 'tools\git\bin\git.exe'
-    & $git --version
-    if ($LASTEXITCODE -ne 0) { throw '同梱Gitが起動しません。' }
-    & $git lfs version
-    if ($LASTEXITCODE -ne 0) { throw '同梱Git LFSが起動しません。' }
-    & $git credential-manager --version
-    if ($LASTEXITCODE -ne 0) { throw '同梱Git Credential Managerが起動しません。' }
-    # Verify hooks and LFS filtering in a local repository, without network or CAD data.
-    $repo = Join-Path $testDir 'lfs-repo'
-    [IO.Directory]::CreateDirectory($repo) | Out-Null
-    & $git -C $repo init --quiet
-    if ($LASTEXITCODE -ne 0) { throw 'LFS試験用フォルダを作成できません。' }
-    & $git -C $repo lfs install --local
-    if ($LASTEXITCODE -ne 0) { throw 'LFSフックを設定できません。' }
-    'sample content' | & $git -C $repo lfs clean -- sample.sldprt
-    if ($LASTEXITCODE -ne 0) { throw 'LFSポインターを生成できません。' }
+  $process = Start-Process -FilePath $setup -ArgumentList $arguments -WindowStyle Hidden -Wait -PassThru
+  if ($process.ExitCode -ne 0) {
+    if (Test-Path -LiteralPath $log) { Get-Content $log -Tail 100 }
+    throw "インストール検証に失敗: $($process.ExitCode)"
+  }
+
+  $git = Join-Path $appDir 'tools\git\bin\git.exe'
+  & $git --version
+  if ($LASTEXITCODE -ne 0) { throw '同梱Gitが起動しません。' }
+  & $git lfs version
+  if ($LASTEXITCODE -ne 0) { throw '同梱Git LFSが起動しません。' }
+  & $git credential-manager --version
+  if ($LASTEXITCODE -ne 0) { throw '同梱Git Credential Managerが起動しません。' }
+
+  # Verify actual clean filtering in a fresh local repository. This is network-free
+  # and avoids relying on PowerShell pipeline input to `git lfs clean`.
+  $repo = Join-Path $testDir ('lfs-repo-' + [guid]::NewGuid().ToString('N'))
+  [IO.Directory]::CreateDirectory($repo) | Out-Null
+  & $git -C $repo init --quiet
+  if ($LASTEXITCODE -ne 0) { throw 'LFS試験用フォルダを作成できません。' }
+  & $git -C $repo lfs install --local
+  if ($LASTEXITCODE -ne 0) { throw 'LFSフックを設定できません。' }
+  Set-Content -LiteralPath (Join-Path $repo '.gitattributes') -Value '*.sldprt filter=lfs diff=lfs merge=lfs -text' -NoNewline
+  Set-Content -LiteralPath (Join-Path $repo 'sample.sldprt') -Value 'sample content' -NoNewline
+  & $git -C $repo add -- .gitattributes sample.sldprt
+  if ($LASTEXITCODE -ne 0) { throw '同梱Git LFSでCADファイルを登録できません。' }
+  $pointer = & $git -C $repo show ':sample.sldprt'
+  if ($LASTEXITCODE -ne 0 -or $pointer -notmatch 'version https://git-lfs.github.com/spec/v1') {
+    throw '同梱Git LFSがLFSポインターを生成できません。'
   }
 }
