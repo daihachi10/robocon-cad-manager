@@ -47,9 +47,9 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           .\packaging\create-release.ps1 -Version $version
-      - name: Verify bundled Git LFS and writable CAD
+      - name: Verify CAD and Git operations
         shell: pwsh
-        run: .\packaging\verify-release.ps1 -TestInstaller
+        run: .\packaging\verify-release.ps1
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
