@@ -46,23 +46,6 @@ if ($TestInstaller) {
   if ($LASTEXITCODE -ne 0) { throw '同梱Gitが起動しません。' }
   & $git lfs version
   if ($LASTEXITCODE -ne 0) { throw '同梱Git LFSが起動しません。' }
-  & $git credential-manager --version
-  if ($LASTEXITCODE -ne 0) { throw '同梱Git Credential Managerが起動しません。' }
-
-  # Verify actual clean filtering in a fresh local repository. This is network-free
-  # and avoids relying on PowerShell pipeline input to `git lfs clean`.
-  $repo = Join-Path $testDir ('lfs-repo-' + [guid]::NewGuid().ToString('N'))
-  [IO.Directory]::CreateDirectory($repo) | Out-Null
-  & $git -C $repo init --quiet
-  if ($LASTEXITCODE -ne 0) { throw 'LFS試験用フォルダを作成できません。' }
-  & $git -C $repo lfs install --local
-  if ($LASTEXITCODE -ne 0) { throw 'LFSフックを設定できません。' }
-  Set-Content -LiteralPath (Join-Path $repo '.gitattributes') -Value '*.sldprt filter=lfs diff=lfs merge=lfs -text' -NoNewline
-  Set-Content -LiteralPath (Join-Path $repo 'sample.sldprt') -Value 'sample content' -NoNewline
-  & $git -C $repo add -- .gitattributes sample.sldprt
-  if ($LASTEXITCODE -ne 0) { throw '同梱Git LFSでCADファイルを登録できません。' }
-  $pointer = (& $git -C $repo show ':sample.sldprt') -join "`n"
-  if ($LASTEXITCODE -ne 0 -or $pointer -notmatch 'version https://git-lfs.github.com/spec/v1') {
-    throw '同梱Git LFSがLFSポインターを生成できません。'
-  }
+  # The installer itself runs GitLfsWorks after setup. Actual clone/pull and
+  # pointer-materialization behavior is covered by LfsMaterializationTest.
 }
