@@ -6,7 +6,7 @@
 namespace {
 void Require(bool value,const char* message){if(!value)throw std::runtime_error(message);}
 void Write(const std::filesystem::path& path,const std::string& value){std::ofstream file(path,std::ios::binary);file<<value;Require(bool(file),"write failed");}
-bool IsPointer(const rc::Repository& repo,const std::wstring& relative){const auto files=rc::ScanCad(repo);const auto found=std::find_if(files.begin(),files.end(),[&](const rc::CadFile& file){return file.path.filename().wstring()==relative;});return found!=files.end()&&found->lfsPointer;}
+bool IsPointer(const rc::Repository& repo,const std::wstring& relative){std::ifstream input(std::filesystem::path(repo.folder)/relative,std::ios::binary);std::string head(80,'\0');input.read(head.data(),static_cast<std::streamsize>(head.size()));head.resize(static_cast<size_t>(input.gcount()));return head.starts_with("version https://git-lfs.github.com/spec/");}
 }
 
 int wmain(int argc,wchar_t** argv){
@@ -25,11 +25,19 @@ int wmain(int argc,wchar_t** argv){
   const auto cloned=git.Clone(destination);if(cloned.exitCode)std::wcerr<<cloned.command<<L"\n"<<cloned.output<<L"\n"<<cloned.error;Require(cloned.exitCode==0,"clone plus LFS pull failed");
   if(IsPointer(destination,L"巨大.SLDPRT")||std::filesystem::file_size(clone/L"巨大.SLDPRT")!=content.size())std::wcerr<<L"LFS clone result:\n"<<cloned.command<<L"\n"<<cloned.output<<L"\n"<<cloned.error<<L"\n";
   Require(!IsPointer(destination,L"巨大.SLDPRT")&&std::filesystem::file_size(clone/L"巨大.SLDPRT")==content.size(),"clone left an LFS pointer");
-  const auto pointer=clone/L"pointer.txt";Require(rc::RunProcessToFile(argv[1],{L"show",L"HEAD:巨大.SLDPRT"},clone,pointer).exitCode==0,"could not read stored pointer");
+  const auto listed=run(clone,{L"lfs",L"ls-files",L"-l"});const auto separator=listed.output.find(L' ');Require(separator==64,"could not find LFS object ID");
+  const auto pointer=root/L"pointer.txt";Write(pointer,"version https://git-lfs.github.com/spec/v1\noid sha256:"+rc::Utf8(listed.output.substr(0,64))+"\nsize "+std::to_string(content.size())+"\n");
   std::filesystem::copy_file(pointer,clone/L"巨大.SLDPRT",std::filesystem::copy_options::overwrite_existing);Require(IsPointer(destination,L"巨大.SLDPRT"),"pointer fixture missing");
   Require(git.LfsPull(destination,{L"巨大.SLDPRT"}).exitCode==0,"manual LFS retrieval failed");Require(!IsPointer(destination,L"巨大.SLDPRT")&&std::filesystem::file_size(clone/L"巨大.SLDPRT")==content.size(),"manual retrieval did not materialize LFS file");
   std::filesystem::copy_file(pointer,clone/L"巨大.SLDPRT",std::filesystem::copy_options::overwrite_existing);Require(IsPointer(destination,L"巨大.SLDPRT"),"second pointer fixture missing");
   Require(git.Pull(destination).exitCode==0,"up-to-date pull plus LFS repair failed");Require(!IsPointer(destination,L"巨大.SLDPRT")&&std::filesystem::file_size(clone/L"巨大.SLDPRT")==content.size(),"pull did not repair LFS pointer");
-  std::cout<<"PASS: clone, explicit retrieval, and an up-to-date update materialize LFS CAD content; pointers are detectable.\n";return 0;
+  // Older repositories may have LFS pointer files but no .gitattributes. Git LFS
+  // fetches the object, yet its standard checkout then leaves the pointer unchanged.
+  // The app must safely materialize the verified local object in that case.
+  std::filesystem::copy_file(pointer,clone/L"巨大.SLDPRT",std::filesystem::copy_options::overwrite_existing);std::filesystem::remove(clone/L".gitattributes");
+  Require(IsPointer(destination,L"巨大.SLDPRT"),"attribute-less pointer fixture missing");
+  Require(git.LfsPull(destination,{L"巨大.SLDPRT"}).exitCode==0,"attribute-less LFS retrieval failed");
+  Require(!IsPointer(destination,L"巨大.SLDPRT")&&std::filesystem::file_size(clone/L"巨大.SLDPRT")==content.size(),"attribute-less LFS retrieval did not materialize the CAD file");
+  std::cout<<"PASS: clone, explicit retrieval, an up-to-date update, and an attribute-less LFS pointer materialize CAD content.\n";return 0;
  }catch(const std::exception& error){std::cerr<<error.what()<<"\n";return 1;}
 }

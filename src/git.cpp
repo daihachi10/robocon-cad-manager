@@ -1,10 +1,65 @@
 #include "git.h"
 #include "json.h"
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
 namespace rc { namespace {
 std::filesystem::path FindGit(){wchar_t b[MAX_PATH];GetModuleFileNameW(nullptr,b,MAX_PATH);auto p=std::filesystem::path(b).parent_path()/L"tools"/L"git"/L"bin"/L"git.exe";if(std::filesystem::exists(p))return p;wchar_t env[MAX_PATH];auto n=GetEnvironmentVariableW(L"ProgramFiles",env,MAX_PATH);return std::filesystem::path(std::wstring(env,n))/L"Git"/L"cmd"/L"git.exe";}
 std::wstring LfsError(const ProcessResult& r){if(!r.error.empty())return r.error;if(r.output.find(L"Authentication")!=std::wstring::npos||r.output.find(L"Username")!=std::wstring::npos)return L"GitHubに認証できません。Git Credential ManagerでGitHubへサインインしてください。";if(r.output.find(L"already locked")!=std::wstring::npos)return L"このファイルは他の利用者がロックしています。";if(r.output.find(L"connect")!=std::wstring::npos||r.output.find(L"network")!=std::wstring::npos)return L"GitHubへ接続できません。ネットワークを確認してください。";return r.output.empty()?L"Git LFSの処理に失敗しました。":Trim(r.output);}
 std::vector<LockInfo> ParseLocks(const std::wstring& raw,const Repository& repo,std::wstring& error){auto j=Json::Parse(raw,&error);if(!j)return{};std::vector<LockInfo> out;auto append=[&](const Json&v,std::optional<bool> verifiedOurs={}){if(v.type!=Json::Type::Object)return;LockInfo l;if(auto x=v.Find(L"id"))l.id=x->StringOr();if(auto x=v.Find(L"path"))l.path=x->StringOr();if(auto x=v.Find(L"ours"))l.ours=x->BoolOr();if(verifiedOurs)l.ours=*verifiedOurs;if(auto o=v.Find(L"owner");o&&o->type==Json::Type::Object)if(auto n=o->Find(L"name"))l.owner=n->StringOr();if(!l.ours&&!repo.userName.empty()&&l.owner==repo.userName)l.ours=true;if(!l.path.empty())out.push_back(std::move(l));};if(j->type==Json::Type::Array){for(const auto&v:j->array)append(v,true);return out;}if(auto values=j->Find(L"locks");values&&values->type==Json::Type::Array)for(const auto&v:values->array)append(v);if(auto values=j->Find(L"ours");values&&values->type==Json::Type::Array)for(const auto&v:values->array)append(v,true);if(auto values=j->Find(L"theirs");values&&values->type==Json::Type::Array)for(const auto&v:values->array)append(v,false);if(auto one=j->Find(L"lock");one&&one->type==Json::Type::Object)append(*one,true);return out;}
 bool HasLine(const std::wstring& all,const std::wstring& line){std::wistringstream s(all);for(std::wstring value;std::getline(s,value);)if(Trim(value)==line)return true;return false;}
+
+struct LfsPointer { std::wstring oid; uint64_t size{}; };
+
+std::optional<LfsPointer> ReadLfsPointer(const std::filesystem::path& path){
+ std::ifstream input(path,std::ios::binary);if(!input)return{};
+ std::string bytes((std::istreambuf_iterator<char>(input)),{});if(bytes.size()>1024)return{};
+ const auto text=Wide(bytes);if(!text.starts_with(L"version https://git-lfs.github.com/spec/v1"))return{};
+ const auto oidAt=text.find(L"oid sha256:"),sizeAt=text.find(L"size ");if(oidAt==std::wstring::npos||sizeAt==std::wstring::npos)return{};
+ const auto oidEnd=text.find_first_of(L"\r\n",oidAt);const auto oid=Trim(text.substr(oidAt+11,oidEnd==std::wstring::npos?std::wstring::npos:oidEnd-(oidAt+11)));
+ const auto sizeEnd=text.find_first_of(L"\r\n",sizeAt);const auto size=Trim(text.substr(sizeAt+5,sizeEnd==std::wstring::npos?std::wstring::npos:sizeEnd-(sizeAt+5)));
+ if(oid.size()!=64||oid.find_first_not_of(L"0123456789abcdefABCDEF")!=std::wstring::npos)return{};
+ try{return LfsPointer{oid,std::stoull(size)};}catch(...){return{};}
+}
+
+bool Sha256Matches(const std::filesystem::path& file,const std::wstring& expected){
+ BCRYPT_ALG_HANDLE algorithm{};BCRYPT_HASH_HANDLE hash{};DWORD objectSize{},written{};
+ if(BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0)<0||
+    BCryptGetProperty(algorithm,BCRYPT_OBJECT_LENGTH,reinterpret_cast<PUCHAR>(&objectSize),sizeof(objectSize),&written,0)<0){if(algorithm)BCryptCloseAlgorithmProvider(algorithm,0);return false;}
+ std::vector<BYTE> object(objectSize),digest(32),buffer(1024*1024);
+ bool ok=BCryptCreateHash(algorithm,&hash,object.data(),objectSize,nullptr,0,0)>=0;
+ std::ifstream input(file,std::ios::binary);
+ if(!input)ok=false;
+ while(ok&&input){input.read(reinterpret_cast<char*>(buffer.data()),static_cast<std::streamsize>(buffer.size()));const auto count=input.gcount();if(count>0&&BCryptHashData(hash,buffer.data(),static_cast<ULONG>(count),0)<0)ok=false;}
+ if(ok&&input.bad())ok=false;
+ if(ok&&BCryptFinishHash(hash,digest.data(),static_cast<ULONG>(digest.size()),0)<0)ok=false;
+ std::wstring actual;static constexpr wchar_t digits[]=L"0123456789abcdef";if(ok)for(const auto byte:digest){actual+=digits[byte>>4];actual+=digits[byte&15];}
+ if(hash)BCryptDestroyHash(hash);BCryptCloseAlgorithmProvider(algorithm,0);
+ return ok&&CompareStringOrdinal(actual.c_str(),-1,expected.c_str(),-1,TRUE)==CSTR_EQUAL;
+}
+
+bool MaterializeLfsPointers(const Repository& repo,const std::vector<std::wstring>& paths,std::wstring& error){
+ error.clear();std::vector<std::filesystem::path> targets;
+ if(paths.empty()){
+  std::error_code ec;std::filesystem::recursive_directory_iterator it(repo.folder,std::filesystem::directory_options::skip_permission_denied,ec),end;
+  while(!ec&&it!=end){const auto current=it->path();if(it->is_directory(ec)&&current.filename()==L".git"){it.disable_recursion_pending();++it;continue;}if(!ec&&it->is_regular_file(ec)&&ReadLfsPointer(current))targets.push_back(current);ec.clear();++it;}
+ }else for(const auto& path:paths)targets.push_back(std::filesystem::path(repo.folder)/std::filesystem::path(path));
+ const auto objects=std::filesystem::path(repo.folder)/L".git"/L"lfs"/L"objects";
+ std::vector<std::wstring> failures;
+ for(const auto& target:targets){
+  const auto pointer=ReadLfsPointer(target);if(!pointer)continue;
+  const auto attributes=GetFileAttributesW(target.c_str());
+  if(attributes!=INVALID_FILE_ATTRIBUTES&&(attributes&FILE_ATTRIBUTE_REPARSE_POINT)){failures.push_back(target.filename().wstring()+L"（リンク先のファイルはLFS本体へ置き換えません）");continue;}
+  const auto object=objects/pointer->oid.substr(0,2)/pointer->oid.substr(2,2)/pointer->oid;
+  std::error_code sizeError;if(!std::filesystem::exists(object)||std::filesystem::file_size(object,sizeError)!=pointer->size||sizeError||!Sha256Matches(object,pointer->oid)){failures.push_back(target.lexically_relative(repo.folder).generic_wstring()+L"（LFS本体を取得できません）");continue;}
+  wchar_t temporary[MAX_PATH]{};if(!GetTempFileNameW(target.parent_path().c_str(),L"rc",0,temporary)){failures.push_back(target.filename().wstring()+L"（一時ファイルを作成できません）");continue;}
+  DeleteFileW(temporary);
+  if(!CopyFileW(object.c_str(),temporary,FALSE)){failures.push_back(target.filename().wstring()+L"（LFS本体を展開できません）");continue;}
+  SetFileAttributesW(target.c_str(),FILE_ATTRIBUTE_NORMAL);
+  if(!MoveFileExW(temporary,target.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){DeleteFileW(temporary);failures.push_back(target.filename().wstring()+L"（LFS本体を置き換えられません）");}
+ }
+ if(!failures.empty()){error=L"次のファイルはLFS本体へ展開できませんでした。\r\n";for(const auto& failure:failures)error+=L"・"+failure+L"\r\n";return false;}
+ return true;
+}
 bool IsMainRef(const std::wstring& branch){return branch==L"main"||branch==L"origin/main"||branch==L"refs/heads/main"||branch==L"refs/remotes/origin/main";}
 }
 std::optional<std::pair<int,int>> ParseGitTransferProgress(const std::wstring& output){
@@ -70,6 +125,10 @@ ProcessResult GitClient::LfsPull(const Repository&r,const std::vector<std::wstri
  checked.output=L"> "+result.command+L"\r\n"+result.output+L"\r\n"+checked.output;
  checked.command=result.command+L"\r\n"+checked.command;
  if(checked.exitCode)checked.error=LfsError(checked);
+ if(!checked.exitCode){
+  std::wstring materializeError;
+  if(!MaterializeLfsPointers(r,paths,materializeError)){checked.exitCode=1;checked.error=materializeError;checked.output+=L"\r\n"+materializeError;}
+ }
  if(steps)steps(checked.exitCode?L"大容量ファイルの展開に失敗しました。":L"大容量ファイルの取得が完了しました。",checked.command,paths.empty()?3:1,paths.empty()?3:1,&checked);
  return checked;
 }
