@@ -38,6 +38,7 @@ int wmain(int argc,wchar_t** argv){
   Require(IsPointer(destination,L"巨大.SLDPRT"),"attribute-less pointer fixture missing");
   Require(git.LfsPull(destination,{L"巨大.SLDPRT"}).exitCode==0,"attribute-less LFS retrieval failed");
   Require(!IsPointer(destination,L"巨大.SLDPRT")&&std::filesystem::file_size(clone/L"巨大.SLDPRT")==content.size(),"attribute-less LFS retrieval did not materialize the CAD file");
+  Require(!git.IsDirty(destination,L"巨大.SLDPRT"),"attribute-less materialization left the CAD file modified");
   std::cout<<"PASS: clone, explicit retrieval, an up-to-date update, and an attribute-less LFS pointer materialize CAD content.\n";return 0;
  }catch(const std::exception& error){std::cerr<<error.what()<<"\n";return 1;}
 }
