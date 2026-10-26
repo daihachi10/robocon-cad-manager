@@ -8,24 +8,6 @@ std::wstring LfsError(const ProcessResult& r){if(!r.error.empty())return r.error
 std::vector<LockInfo> ParseLocks(const std::wstring& raw,const Repository& repo,std::wstring& error){auto j=Json::Parse(raw,&error);if(!j)return{};std::vector<LockInfo> out;auto append=[&](const Json&v,std::optional<bool> verifiedOurs={}){if(v.type!=Json::Type::Object)return;LockInfo l;if(auto x=v.Find(L"id"))l.id=x->StringOr();if(auto x=v.Find(L"path"))l.path=x->StringOr();if(auto x=v.Find(L"ours"))l.ours=x->BoolOr();if(verifiedOurs)l.ours=*verifiedOurs;if(auto o=v.Find(L"owner");o&&o->type==Json::Type::Object)if(auto n=o->Find(L"name"))l.owner=n->StringOr();if(!l.ours&&!repo.userName.empty()&&l.owner==repo.userName)l.ours=true;if(!l.path.empty())out.push_back(std::move(l));};if(j->type==Json::Type::Array){for(const auto&v:j->array)append(v,true);return out;}if(auto values=j->Find(L"locks");values&&values->type==Json::Type::Array)for(const auto&v:values->array)append(v);if(auto values=j->Find(L"ours");values&&values->type==Json::Type::Array)for(const auto&v:values->array)append(v,true);if(auto values=j->Find(L"theirs");values&&values->type==Json::Type::Array)for(const auto&v:values->array)append(v,false);if(auto one=j->Find(L"lock");one&&one->type==Json::Type::Object)append(*one,true);return out;}
 bool HasLine(const std::wstring& all,const std::wstring& line){std::wistringstream s(all);for(std::wstring value;std::getline(s,value);)if(Trim(value)==line)return true;return false;}
 
-bool EnsureLocalLfsAttributes(const Repository& repo,std::wstring& error){
- error.clear();const auto attributes=std::filesystem::path(repo.folder)/L".git"/L"info"/L"attributes";std::error_code directoryError;
- std::filesystem::create_directories(attributes.parent_path(),directoryError);if(directoryError){error=L"ローカルのLFS属性設定フォルダーを作成できません。";return false;}
- std::ifstream input(attributes,std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(input)),{});auto text=Wide(bytes);
- const std::vector<std::wstring> lines={
-  L"*.sldprt filter=lfs diff=lfs merge=lfs -text",L"*.SLDPRT filter=lfs diff=lfs merge=lfs -text",
-  L"*.sldasm filter=lfs diff=lfs merge=lfs -text",L"*.SLDASM filter=lfs diff=lfs merge=lfs -text",
-  L"*.slddrw filter=lfs diff=lfs merge=lfs -text",L"*.SLDDRW filter=lfs diff=lfs merge=lfs -text",
-  L"*.stl filter=lfs diff=lfs merge=lfs -text",L"*.STL filter=lfs diff=lfs merge=lfs -text",
-  L"*.step filter=lfs diff=lfs merge=lfs -text",L"*.STEP filter=lfs diff=lfs merge=lfs -text",
-  L"*.stp filter=lfs diff=lfs merge=lfs -text",L"*.STP filter=lfs diff=lfs merge=lfs -text",
-  L"*.dxf filter=lfs diff=lfs merge=lfs -text",L"*.DXF filter=lfs diff=lfs merge=lfs -text",
-  L"*.dwg filter=lfs diff=lfs merge=lfs -text",L"*.DWG filter=lfs diff=lfs merge=lfs -text",
-  L"*.pdf filter=lfs diff=lfs merge=lfs -text",L"*.PDF filter=lfs diff=lfs merge=lfs -text"};
- bool changed=false;for(const auto& line:lines)if(!HasLine(text,line)){if(!text.empty()&&text.back()!=L'\n')text+=L'\n';text+=line+L'\n';changed=true;}
- if(!changed)return true;const auto temporary=attributes.wstring()+L".robocon";std::ofstream output(temporary,std::ios::binary|std::ios::trunc);if(!output){error=L"ローカルのLFS属性設定を書き込めません。";return false;}output<<Utf8(text);output.close();if(!output||!MoveFileExW(temporary.c_str(),attributes.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){DeleteFileW(temporary.c_str());error=L"ローカルのLFS属性設定を保存できません。";return false;}return true;
-}
-
 struct LfsPointer { std::wstring oid; uint64_t size{}; };
 
 std::optional<LfsPointer> ReadLfsPointer(const std::filesystem::path& path){
@@ -37,6 +19,20 @@ std::optional<LfsPointer> ReadLfsPointer(const std::filesystem::path& path){
  const auto sizeEnd=text.find_first_of(L"\r\n",sizeAt);const auto size=Trim(text.substr(sizeAt+5,sizeEnd==std::wstring::npos?std::wstring::npos:sizeEnd-(sizeAt+5)));
  if(oid.size()!=64||oid.find_first_not_of(L"0123456789abcdefABCDEF")!=std::wstring::npos)return{};
  try{return LfsPointer{oid,std::stoull(size)};}catch(...){return{};}
+}
+
+bool EnsureLocalLfsAttributes(const Repository& repo,const std::filesystem::path& executable,std::wstring& error){
+ error.clear();const auto root=std::filesystem::path(repo.folder),attributes=root/L".git"/L"info"/L"attributes";std::error_code directoryError;
+ std::filesystem::create_directories(attributes.parent_path(),directoryError);if(directoryError){error=L"ローカルのLFS属性設定フォルダーを作成できません。";return false;}
+ std::ifstream input(attributes,std::ios::binary);std::string bytes((std::istreambuf_iterator<char>(input)),{});input.close();std::wstring text=Wide(bytes),kept;
+ const auto isLegacy=[](const std::wstring& line){static const std::vector<std::wstring> names={L"sldprt",L"SLDPRT",L"sldasm",L"SLDASM",L"slddrw",L"SLDDRW",L"stl",L"STL",L"step",L"STEP",L"stp",L"STP",L"dxf",L"DXF",L"dwg",L"DWG",L"pdf",L"PDF"};return std::find(names.begin(),names.end(),Trim(line).substr(2,Trim(line).find(L' ')-2))!=names.end()&&Trim(line).starts_with(L"*.")&&Trim(line).ends_with(L"filter=lfs diff=lfs merge=lfs -text");};
+ for(std::wistringstream lines(text);std::getline(lines,text);)if(!isLegacy(text))kept+=text+L'\n';text=std::move(kept);
+ std::vector<std::wstring> paths;const auto listed=RunProcess(executable,{L"lfs",L"ls-files",L"--name-only"},root);
+ if(!listed.exitCode){std::wistringstream names(listed.output);for(std::wstring path;std::getline(names,path);){path=Trim(path);if(!path.empty())paths.push_back(path);}}
+ if(paths.empty()){std::error_code ec;std::filesystem::recursive_directory_iterator it(root,std::filesystem::directory_options::skip_permission_denied,ec),end;
+  while(!ec&&it!=end){const auto current=it->path();if(it->is_directory(ec)&&current.filename()==L".git"){it.disable_recursion_pending();++it;continue;}if(!ec&&it->is_regular_file(ec)&&ReadLfsPointer(current))paths.push_back(current.lexically_relative(root).generic_wstring());ec.clear();++it;}}
+ for(const auto& path:paths){std::wstring escaped;for(const auto c:path){if(c==L'\\'||c==L'\"')escaped+=L'\\';escaped+=c;}const auto line=L"\""+escaped+L"\" filter=lfs diff=lfs merge=lfs -text";if(!HasLine(text,line))text+=line+L'\n';}
+ const auto temporary=attributes.wstring()+L".robocon";std::ofstream output(temporary,std::ios::binary|std::ios::trunc);if(!output){error=L"ローカルのLFS属性設定を書き込めません。";return false;}output<<Utf8(text);output.close();if(!output||!MoveFileExW(temporary.c_str(),attributes.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)){DeleteFileW(temporary.c_str());error=L"ローカルのLFS属性設定を保存できません。";return false;}return true;
 }
 
 bool Sha256Matches(const std::filesystem::path& file,const std::wstring& expected){
@@ -122,7 +118,7 @@ ProcessResult GitClient::LfsPull(const Repository&r,const std::vector<std::wstri
  auto installed=Run(r.folder,install);
  if(installed.exitCode){installed.error=LfsError(installed);if(steps)steps(L"大容量ファイル用のGit設定に失敗しました。",installed.command,0,paths.empty()?3:1,&installed);return installed;}
  std::wstring attributesError;
- if(!EnsureLocalLfsAttributes(r,attributesError)){installed.exitCode=1;installed.error=attributesError;if(steps)steps(L"大容量ファイル用のGit設定に失敗しました。",installed.command,0,paths.empty()?3:1,&installed);return installed;}
+ if(!EnsureLocalLfsAttributes(r,exe_,attributesError)){installed.exitCode=1;installed.error=attributesError;if(steps)steps(L"大容量ファイル用のGit設定に失敗しました。",installed.command,0,paths.empty()?3:1,&installed);return installed;}
  std::wstring include;
  for(const auto& path:paths){if(!include.empty())include+=L",";include+=path;}
  // Empty include/exclude overrides per-user LFS filters. A CAD clone must contain all
